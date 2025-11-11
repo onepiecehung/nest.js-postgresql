@@ -1,0 +1,9 @@
+{
+  "AUTHOR_NOT_FOUND": "Không tìm thấy tác giả",
+  "AUTHOR_CREATED": "Tạo tác giả thành công",
+  "AUTHOR_UPDATED": "Cập nhật tác giả thành công",
+  "AUTHOR_DELETED": "Xóa tác giả thành công",
+  "SERIES_LINKED": "Liên kết series thành công",
+  "INVALID_SEARCH_FIELDS": "Các trường tìm kiếm không hợp lệ",
+  "AUTHOR_ALREADY_EXISTS": "Tác giả đã tồn tại"
+}

@@ -1,0 +1,8 @@
+{
+  "STUDIO_NOT_FOUND": "Không tìm thấy studio",
+  "STUDIO_CREATED": "Tạo studio thành công",
+  "STUDIO_UPDATED": "Cập nhật studio thành công",
+  "STUDIO_DELETED": "Xóa studio thành công",
+  "INVALID_SEARCH_FIELDS": "Các trường tìm kiếm không hợp lệ",
+  "STUDIO_ALREADY_EXISTS": "Studio đã tồn tại"
+}

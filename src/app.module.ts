@@ -16,9 +16,11 @@ import { AnalyticsModule } from './analytics/analytics.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { ArticlesModule } from './articles/articles.module';
+import { AuthorsModule } from './authors/authors.module';
 import { AuthModule } from './auth/auth.module';
 import { BadgesModule } from './badges/badges.module';
 import { BookmarksModule } from './bookmarks/bookmarks.module';
+import { CharactersModule } from './characters/characters.module';
 import { CommentsModule } from './comments/comments.module';
 import { FollowModule } from './follow/follow.module';
 import { MediaModule } from './media/media.module';
@@ -29,7 +31,10 @@ import { QrModule } from './qr/qr.module';
 import { RateLimitModule } from './rate-limit/rate-limit.module';
 import { ReactionsModule } from './reactions/reactions.module';
 import { ReportsModule } from './reports/reports.module';
+import { SeriesModule } from './series/series.module';
 import { ShareModule } from './share/share.module';
+import { StaffsModule } from './staffs/staffs.module';
+import { StudiosModule } from './studios/studios.module';
 import {
   appConfig,
   awsConfig,
@@ -102,7 +107,9 @@ import { WorkerModule } from './workers/worker.module';
     MailModule,
     MediaModule,
     AuthModule,
+    AuthorsModule,
     BadgesModule,
+    CharactersModule,
     QrModule,
     RateLimitModule,
     ArticlesModule,
@@ -116,6 +123,9 @@ import { WorkerModule } from './workers/worker.module';
     FollowModule,
     AnalyticsModule,
     ShareModule,
+    StaffsModule,
+    StudiosModule,
+    SeriesModule,
     OrganizationsModule,
     PermissionsModule,
   ],

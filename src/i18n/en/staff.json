@@ -1,0 +1,9 @@
+{
+  "STAFF_NOT_FOUND": "Staff not found",
+  "STAFF_CREATED": "Staff created successfully",
+  "STAFF_UPDATED": "Staff updated successfully",
+  "STAFF_DELETED": "Staff deleted successfully",
+  "CHARACTERS_LINKED": "Characters linked successfully",
+  "INVALID_SEARCH_FIELDS": "Invalid search fields provided",
+  "STAFF_ALREADY_EXISTS": "Staff already exists"
+}
