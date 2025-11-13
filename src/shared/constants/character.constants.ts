@@ -51,5 +51,5 @@ export type CharacterRole =
 export type CharacterGender =
   (typeof CHARACTER_CONSTANTS.GENDER)[keyof typeof CHARACTER_CONSTANTS.GENDER];
 
-export type BloodType =
+export type CharacterBloodType =
   (typeof CHARACTER_CONSTANTS.BLOOD_TYPES)[keyof typeof CHARACTER_CONSTANTS.BLOOD_TYPES];

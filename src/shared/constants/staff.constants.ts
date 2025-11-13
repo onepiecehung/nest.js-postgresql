@@ -43,5 +43,5 @@ export type StaffStatus =
 export type StaffGender =
   (typeof STAFF_CONSTANTS.GENDER)[keyof typeof STAFF_CONSTANTS.GENDER];
 
-export type BloodType =
+export type StaffBloodType =
   (typeof STAFF_CONSTANTS.BLOOD_TYPES)[keyof typeof STAFF_CONSTANTS.BLOOD_TYPES];
