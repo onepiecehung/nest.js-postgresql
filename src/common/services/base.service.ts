@@ -224,7 +224,6 @@ export abstract class BaseService<T extends { id: string }> {
     const where = ConditionBuilder.build(
       {
         ...rest,
-        ...(extraFilter || {}),
         // Pass validated search fields to ConditionBuilder
         fields: searchFields,
       },
@@ -301,9 +300,6 @@ export abstract class BaseService<T extends { id: string }> {
       // Pass validated search fields to ConditionBuilder
       fields: searchFields,
     };
-    if (extraFilter) {
-      Object.assign(baseFilter, extraFilter);
-    }
     const where = ConditionBuilder.build(
       baseFilter,
       this.defaultSearchField,
