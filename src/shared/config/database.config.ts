@@ -23,7 +23,7 @@ export const databaseConfig = () => ({
   bigNumberStrings: false,
   supportBigNumbers: true,
   autoLoadEntities: true,
-  logging: true,
+  logging: false,
   extra: {
     decimalNumbers: true,
     max: 20,

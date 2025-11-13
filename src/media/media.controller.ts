@@ -124,4 +124,15 @@ export class MediaController {
   async checkMediaFileExists(@Param('id') id: string) {
     return this.mediaService.checkMediaFileExists(id);
   }
+
+  @Get(':id/scramble-key')
+  @Auth()
+  async getScrambleKey(@Param('id') id: string) {
+    const data = await this.mediaService.getScrambleKey(id);
+    return {
+      success: true,
+      data,
+      messageKey: 'media.SCRAMBLE_KEY_SUCCESS',
+    };
+  }
 }

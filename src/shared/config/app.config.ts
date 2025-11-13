@@ -21,4 +21,13 @@ export const appConfig = () => ({
   ws: {
     isAdapterEnabled: process.env.WS_ADAPTER_ENABLED || false,
   },
+  imageScrambler: {
+    enabled: process.env.IMAGE_SCRAMBLER_ENABLED === 'true',
+    masterKey:
+      process.env.IMAGE_SCRAMBLER_MASTER_KEY ||
+      'dev_image_scrambler_master_key',
+    tileRows: Number(process.env.IMAGE_SCRAMBLER_TILE_ROWS) || 24,
+    tileCols: Number(process.env.IMAGE_SCRAMBLER_TILE_COLS) || 12,
+    version: 1,
+  },
 });
