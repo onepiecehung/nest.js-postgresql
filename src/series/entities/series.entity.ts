@@ -43,11 +43,11 @@ export class Series extends BaseEntityCustom {
    * MyAnimeList ID for cross-reference
    */
   @Index() // Index for MAL ID lookup
-  @Column({ type: 'string', nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   myAnimeListId?: string;
 
   @Index() // Index for MAL ID lookup
-  @Column({ type: 'string', nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   aniListId?: string;
 
   /**
