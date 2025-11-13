@@ -57,7 +57,7 @@ export class Character extends BaseEntityCustom {
    */
   @ManyToOne(() => Media, { nullable: true })
   @JoinColumn({ name: 'imageId', referencedColumnName: 'id' })
-  image: Media;
+  image?: Media;
 
   /**
    * General description of the character
@@ -148,24 +148,24 @@ export class Character extends BaseEntityCustom {
    * The ID of the staff member who voices this character
    */
   @Column({ type: 'bigint', nullable: false })
-  staffId: string;
+  staffId?: string;
 
   /**
    * Staff member (voice actor) who voices this character
    * Many-to-One relationship with Staff entity
    */
   @ManyToOne(() => Staff, {
-    nullable: false,
+    nullable: true,
     onDelete: 'CASCADE',
   })
   @JoinColumn({ name: 'staffId', referencedColumnName: 'id' })
-  staff: Staff;
+  staff?: Staff;
 
   /**
    * The ID of the series in which this character appears
    */
   @Column({ type: 'bigint', nullable: false })
-  seriesId: string;
+  seriesId?: string;
 
   /**
    * Series in which this character appears
@@ -173,11 +173,11 @@ export class Character extends BaseEntityCustom {
    * One character can appear in one series
    */
   @ManyToOne(() => Series, {
-    nullable: false,
+    nullable: true,
     onDelete: 'CASCADE',
   })
   @JoinColumn({ name: 'seriesId', referencedColumnName: 'id' })
-  series: Series;
+  series?: Series;
 
   /**
    * Convert entity to JSON with proper serialization
