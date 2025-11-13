@@ -1,36 +1,8 @@
-import {
-  IsString,
-  IsOptional,
-  IsBoolean,
-  IsObject,
-  MaxLength,
-} from 'class-validator';
-import { STUDIO_CONSTANTS } from 'src/shared/constants';
+import { PartialType } from '@nestjs/mapped-types';
+import { CreateStudioDto } from './create-studio.dto';
 
 /**
  * DTO for updating an existing studio
- * All fields are optional
+ * Extends CreateStudioDto with all fields optional
  */
-export class UpdateStudioDto {
-  @IsOptional()
-  @IsString()
-  @MaxLength(STUDIO_CONSTANTS.NAME_MAX_LENGTH)
-  name?: string;
-
-  @IsOptional()
-  @IsBoolean()
-  isAnimationStudio?: boolean;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(STUDIO_CONSTANTS.SITE_URL_MAX_LENGTH)
-  siteUrl?: string;
-
-  @IsOptional()
-  @IsString()
-  status?: string;
-
-  @IsOptional()
-  @IsObject()
-  metadata?: Record<string, unknown>;
-}
+export class UpdateStudioDto extends PartialType(CreateStudioDto) {}

@@ -9,7 +9,6 @@ import { ReactionsService } from 'src/reactions/reactions.service';
 import { CacheService } from 'src/shared/services';
 import { DeepPartial, Repository } from 'typeorm';
 import { Studio } from './entities/studio.entity';
-import { CreateStudioDto, UpdateStudioDto } from './dto';
 
 @Injectable()
 export class StudiosService extends BaseService<Studio> {
@@ -29,7 +28,7 @@ export class StudiosService extends BaseService<Studio> {
         selectWhitelist: {
           id: true,
           name: true,
-          isAnimationStudio: true,
+          type: true,
           siteUrl: true,
           status: true,
           createdAt: true,
@@ -54,11 +53,6 @@ export class StudiosService extends BaseService<Studio> {
   protected async beforeCreate(
     data: DeepPartial<Studio>,
   ): Promise<DeepPartial<Studio>> {
-    // Ensure isAnimationStudio defaults to true if not provided
-    if (data.isAnimationStudio === undefined) {
-      data.isAnimationStudio = true;
-    }
-
     return data;
   }
 

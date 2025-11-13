@@ -1,8 +1,8 @@
 import {
-  IsString,
-  IsOptional,
-  IsBoolean,
+  IsIn,
   IsObject,
+  IsOptional,
+  IsString,
   MaxLength,
 } from 'class-validator';
 import { STUDIO_CONSTANTS } from 'src/shared/constants';
@@ -13,6 +13,22 @@ import { STUDIO_CONSTANTS } from 'src/shared/constants';
  */
 export class CreateStudioDto {
   /**
+   * The MAL id of the studio
+   * MyAnimeList ID for cross-reference
+   */
+  @IsOptional()
+  @IsString()
+  myAnimeListId?: string;
+
+  /**
+   * The AniList id of the studio
+   * AniList ID for cross-reference
+   */
+  @IsOptional()
+  @IsString()
+  aniListId?: string;
+
+  /**
    * The name of the studio
    * Required field
    */
@@ -22,11 +38,12 @@ export class CreateStudioDto {
 
   /**
    * If the studio is an animation studio or a different kind of company
-   * true = animation studio, false = production company or other
+   * Values: 'animation_studio' | 'production_company'
    */
   @IsOptional()
-  @IsBoolean()
-  isAnimationStudio?: boolean;
+  @IsString()
+  @IsIn(Object.values(STUDIO_CONSTANTS.TYPES))
+  type?: string;
 
   /**
    * URL for the studio page on the AniList website
@@ -36,6 +53,19 @@ export class CreateStudioDto {
   @MaxLength(STUDIO_CONSTANTS.SITE_URL_MAX_LENGTH)
   siteUrl?: string;
 
+  /**
+   * Studio status
+   * Values: 'active' | 'inactive' | 'pending' | 'archived'
+   */
+  @IsOptional()
+  @IsString()
+  @IsIn(Object.values(STUDIO_CONSTANTS.STATUS))
+  status?: string;
+
+  /**
+   * Additional metadata for studio
+   * JSON field for storing structured data
+   */
   @IsOptional()
   @IsObject()
   metadata?: Record<string, unknown>;
