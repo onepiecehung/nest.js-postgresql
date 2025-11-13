@@ -1,7 +1,7 @@
 import { instanceToPlain } from 'class-transformer';
 import { BaseEntityCustom } from 'src/shared/entities/base.entity';
 import { Column, Entity, JoinColumn, ManyToOne, Unique } from 'typeorm';
-import { Genre } from './geners.entity';
+import { Genre } from './genres.entity';
 import { Series } from './series.entity';
 
 /**
