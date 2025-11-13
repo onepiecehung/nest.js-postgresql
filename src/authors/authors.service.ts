@@ -138,79 +138,14 @@ export class AuthorsService extends BaseService<Author> {
    * Create an author with linked series
    */
   async createWithSeries(dto: CreateAuthorDto): Promise<Author> {
-    const { series, dateOfBirth, dateOfDeath, ...authorData } = dto;
-
-    // Map DTO fields to entity fields
-    const entityData: DeepPartial<Author> = {
-      ...authorData,
-      // Convert FuzzyDateDto to Date for timestamptz field
-      dateOfBirth: dateOfBirth?.year
-        ? new Date(
-            dateOfBirth.year,
-            dateOfBirth.month ? dateOfBirth.month - 1 : 0,
-            dateOfBirth.day || 1,
-          )
-        : undefined,
-      dateOfDeath: dateOfDeath?.year
-        ? new Date(
-            dateOfDeath.year,
-            dateOfDeath.month ? dateOfDeath.month - 1 : 0,
-            dateOfDeath.day || 1,
-          )
-        : undefined,
-    };
-
-    // Create author
-    const author = await this.create(entityData);
-
-    // Link series with role information if provided
-    if (series && series.length > 0) {
-      await this.linkSeriesWithRoles(author.id, series);
-    }
-
-    return this.findById(author.id, {
-      relations: ['seriesRoles', 'seriesRoles.series'],
-    });
+    return this.create(dto);
   }
 
   /**
    * Update an author and optionally update series links
    */
   async updateWithSeries(id: string, dto: UpdateAuthorDto): Promise<Author> {
-    const { series, dateOfBirth, dateOfDeath, ...authorData } = dto;
-
-    // Map DTO fields to entity fields
-    const entityData: DeepPartial<Author> = {
-      ...authorData,
-    };
-
-    // Convert FuzzyDateDto to Date for timestamptz fields if provided
-    if (dateOfBirth?.year) {
-      entityData.dateOfBirth = new Date(
-        dateOfBirth.year,
-        dateOfBirth.month ? dateOfBirth.month - 1 : 0,
-        dateOfBirth.day || 1,
-      );
-    }
-    if (dateOfDeath?.year) {
-      entityData.dateOfDeath = new Date(
-        dateOfDeath.year,
-        dateOfDeath.month ? dateOfDeath.month - 1 : 0,
-        dateOfDeath.day || 1,
-      );
-    }
-
-    // Update author
-    await this.update(id, entityData);
-
-    // Update series links if provided
-    if (series !== undefined) {
-      await this.linkSeriesWithRoles(id, series);
-    }
-
-    return this.findById(id, {
-      relations: ['seriesRoles', 'seriesRoles.series'],
-    });
+    return this.update(id, dto);
   }
 
   /**

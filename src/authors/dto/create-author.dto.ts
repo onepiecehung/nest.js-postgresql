@@ -1,15 +1,14 @@
 import { Type } from 'class-transformer';
 import {
-  IsString,
-  IsOptional,
-  IsObject,
   IsArray,
-  ValidateNested,
+  IsDate,
+  IsObject,
+  IsOptional,
+  IsString,
   MaxLength,
+  ValidateNested,
 } from 'class-validator';
 import { AUTHOR_CONSTANTS } from 'src/shared/constants';
-import { FuzzyDateDto } from 'src/characters/dto/create-character.dto';
-import { SeriesRoleDto } from './link-series.dto';
 
 /**
  * DTO for creating an author name
@@ -67,14 +66,12 @@ export class CreateAuthorDto {
   description?: string;
 
   @IsOptional()
-  @ValidateNested()
-  @Type(() => FuzzyDateDto)
-  dateOfBirth?: FuzzyDateDto;
+  @IsDate()
+  dateOfBirth?: Date;
 
   @IsOptional()
-  @ValidateNested()
-  @Type(() => FuzzyDateDto)
-  dateOfDeath?: FuzzyDateDto;
+  @IsDate()
+  dateOfDeath?: Date;
 
   @IsOptional()
   @IsString()
@@ -102,9 +99,8 @@ export class CreateAuthorDto {
 
   @IsOptional()
   @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => SeriesRoleDto)
-  series?: SeriesRoleDto[]; // Series to link with role information
+  @IsString({ each: true })
+  seriesIds?: string[]; // Series IDs to link with
 
   @IsOptional()
   @IsObject()

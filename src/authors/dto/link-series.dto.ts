@@ -1,15 +1,15 @@
+import { Type } from 'class-transformer';
 import {
-  IsString,
-  IsOptional,
   IsArray,
-  ValidateNested,
-  MaxLength,
   IsBoolean,
   IsIn,
   IsInt,
+  IsOptional,
+  IsString,
+  MaxLength,
   Min,
+  ValidateNested,
 } from 'class-validator';
-import { Type } from 'class-transformer';
 import { AUTHOR_CONSTANTS } from 'src/shared/constants';
 
 /**
