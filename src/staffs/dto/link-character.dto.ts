@@ -1,11 +1,11 @@
-import {
-  IsString,
-  IsOptional,
-  IsArray,
-  ValidateNested,
-  MaxLength,
-} from 'class-validator';
 import { Type } from 'class-transformer';
+import {
+  IsArray,
+  IsOptional,
+  IsString,
+  MaxLength,
+  ValidateNested,
+} from 'class-validator';
 
 /**
  * DTO for linking a character to a staff with role information
@@ -25,7 +25,7 @@ export class CharacterRoleDto {
   @IsOptional()
   @IsString()
   @MaxLength(500)
-  roleNotes?: string;
+  notes?: string;
 
   /**
    * Used for grouping roles where multiple dubs exist for the same language

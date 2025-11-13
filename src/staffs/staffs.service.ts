@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { Character } from 'src/characters/entities/character.entity';
 import { AdvancedPaginationDto, CursorPaginationDto } from 'src/common/dto';
 import { IPagination, IPaginationCursor } from 'src/common/interface';
 import { TypeOrmBaseRepository } from 'src/common/repositories/typeorm.base-repo';
@@ -7,16 +8,9 @@ import { BaseService } from 'src/common/services';
 import { ReactionCount } from 'src/reactions/entities/reaction-count.entity';
 import { ReactionsService } from 'src/reactions/reactions.service';
 import { CacheService } from 'src/shared/services';
-import { DeepPartial, In, Repository } from 'typeorm';
-import { Character } from 'src/characters/entities/character.entity';
+import { DeepPartial, Repository } from 'typeorm';
+import { CharacterRoleDto, CreateStaffDto, UpdateStaffDto } from './dto';
 import { Staff } from './entities/staff.entity';
-import { StaffCharacter } from './entities/staff-character.entity';
-import {
-  CreateStaffDto,
-  UpdateStaffDto,
-  CharacterRoleDto,
-  LinkCharactersDto,
-} from './dto';
 
 @Injectable()
 export class StaffsService extends BaseService<Staff> {
@@ -26,9 +20,6 @@ export class StaffsService extends BaseService<Staff> {
 
     @InjectRepository(Character)
     private readonly characterRepository: Repository<Character>,
-
-    @InjectRepository(StaffCharacter)
-    private readonly staffCharacterRepository: Repository<StaffCharacter>,
 
     cacheService: CacheService,
     private readonly reactionsService: ReactionsService,
@@ -40,36 +31,58 @@ export class StaffsService extends BaseService<Staff> {
         cache: { enabled: true, ttlSec: 60, prefix: 'staffs', swrSec: 30 },
         defaultSearchField: 'description',
         relationsWhitelist: {
-          characterRoles: {
-            character: true,
+          image: true,
+          characters: {
+            image: true,
+          },
+          seriesRoles: {
+            series: true,
           },
         },
         selectWhitelist: {
           id: true,
+          myAnimeListId: true,
+          aniListId: true,
           name: true,
-          languageV2: true,
-          image: true,
+          language: true,
+          imageId: true,
+          image: {
+            id: true,
+            url: true,
+            type: true,
+          },
           description: true,
           primaryOccupations: true,
           gender: true,
           dateOfBirth: true,
           dateOfDeath: true,
           age: true,
-          yearsActive: true,
+          debutDate: true,
           homeTown: true,
           bloodType: true,
           siteUrl: true,
+          notes: true,
           status: true,
+          metadata: true,
           createdAt: true,
           updatedAt: true,
-          characterRoles: {
+          characters: {
             id: true,
-            roleNotes: true,
-            dubGroup: true,
-            character: {
+            name: true,
+            image: {
               id: true,
-              name: true,
-              image: true,
+              url: true,
+            },
+          },
+          seriesRoles: {
+            id: true,
+            role: true,
+            isMain: true,
+            notes: true,
+            sortOrder: true,
+            series: {
+              id: true,
+              title: true,
             },
           },
         },
@@ -92,19 +105,15 @@ export class StaffsService extends BaseService<Staff> {
   protected async beforeCreate(
     data: DeepPartial<Staff>,
   ): Promise<DeepPartial<Staff>> {
-    // Convert yearsActive DTO to array format if needed
-    if (
-      data.yearsActive &&
-      typeof data.yearsActive === 'object' &&
-      'startYear' in data.yearsActive
-    ) {
-      const yearsActive = data.yearsActive as {
-        startYear?: number;
-        endYear?: number;
-      };
-      data.yearsActive = yearsActive.endYear
-        ? [yearsActive.startYear, yearsActive.endYear]
-        : [yearsActive.startYear];
+    // Convert ISO date strings to Date objects if provided as strings
+    if (data.dateOfBirth && typeof data.dateOfBirth === 'string') {
+      data.dateOfBirth = new Date(data.dateOfBirth);
+    }
+    if (data.dateOfDeath && typeof data.dateOfDeath === 'string') {
+      data.dateOfDeath = new Date(data.dateOfDeath);
+    }
+    if (data.debutDate && typeof data.debutDate === 'string') {
+      data.debutDate = new Date(data.debutDate);
     }
 
     return data;
@@ -154,19 +163,17 @@ export class StaffsService extends BaseService<Staff> {
    * Create a staff with linked characters
    */
   async createWithCharacters(dto: CreateStaffDto): Promise<Staff> {
-    const { characters, ...staffData } = dto;
+    const { characters, dateOfBirth, dateOfDeath, debutDate, ...staffData } =
+      dto;
 
     // Prepare staff data
     const staffPartial: DeepPartial<Staff> = {
       ...staffData,
+      // Convert ISO date strings to Date objects for timestamptz fields
+      dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : undefined,
+      dateOfDeath: dateOfDeath ? new Date(dateOfDeath) : undefined,
+      debutDate: debutDate ? new Date(debutDate) : undefined,
     };
-
-    // Handle yearsActive conversion
-    if (dto.yearsActive) {
-      staffPartial.yearsActive = dto.yearsActive.endYear
-        ? [dto.yearsActive.startYear, dto.yearsActive.endYear]
-        : [dto.yearsActive.startYear];
-    }
 
     // Create staff
     const staff = await this.create(staffPartial);
@@ -177,7 +184,7 @@ export class StaffsService extends BaseService<Staff> {
     }
 
     return this.findById(staff.id, {
-      relations: ['characterRoles', 'characterRoles.character'],
+      relations: ['characters', 'characters.image'],
     });
   }
 
@@ -185,17 +192,27 @@ export class StaffsService extends BaseService<Staff> {
    * Update a staff and optionally update character links
    */
   async updateWithCharacters(id: string, dto: UpdateStaffDto): Promise<Staff> {
-    const { characters, ...staffData } = dto;
+    const { characters, dateOfBirth, dateOfDeath, debutDate, ...staffData } =
+      dto;
 
-    // Handle yearsActive conversion if provided
-    if (dto.yearsActive) {
-      (staffData as DeepPartial<Staff>).yearsActive = dto.yearsActive.endYear
-        ? [dto.yearsActive.startYear, dto.yearsActive.endYear]
-        : [dto.yearsActive.startYear];
+    // Prepare update data
+    const updateData: DeepPartial<Staff> = {
+      ...staffData,
+    };
+
+    // Convert ISO date strings to Date objects for timestamptz fields if provided
+    if (dateOfBirth) {
+      updateData.dateOfBirth = new Date(dateOfBirth);
+    }
+    if (dateOfDeath) {
+      updateData.dateOfDeath = new Date(dateOfDeath);
+    }
+    if (debutDate) {
+      updateData.debutDate = new Date(debutDate);
     }
 
     // Update staff
-    await this.update(id, staffData);
+    await this.update(id, updateData);
 
     // Update character links if provided
     if (characters !== undefined) {
@@ -203,12 +220,15 @@ export class StaffsService extends BaseService<Staff> {
     }
 
     return this.findById(id, {
-      relations: ['characterRoles', 'characterRoles.character'],
+      relations: ['characters', 'characters.image'],
     });
   }
 
   /**
    * Link characters to a staff member with role information
+   * Note: The current entity structure uses a direct relationship (not a junction table),
+   * so role information (notes, dubGroup) cannot be stored on the relationship itself.
+   * This method links characters directly to the staff.
    * Based on AniList API StaffRoleType: https://docs.anilist.co/reference/object/staffroletype
    */
   async linkCharactersWithRoles(
@@ -217,26 +237,22 @@ export class StaffsService extends BaseService<Staff> {
   ): Promise<void> {
     const staff = await this.staffRepository.findOne({
       where: { id: staffId },
+      relations: ['characters'],
     });
 
     if (!staff) {
       return;
     }
 
-    // Remove existing relationships for this staff
-    await this.staffCharacterRepository.delete({ staffId });
-
-    // Create new relationships with role information
-    const staffCharacters = characterRoles.map((role) => {
-      return this.staffCharacterRepository.create({
-        staffId,
-        characterId: role.characterId,
-        roleNotes: role.roleNotes,
-        dubGroup: role.dubGroup,
-      });
+    // Get character entities
+    const characterIds = characterRoles.map((role) => role.characterId);
+    const characters = await this.characterRepository.find({
+      where: characterIds.map((id) => ({ id })),
     });
 
-    await this.staffCharacterRepository.save(staffCharacters);
+    // Update the staff's characters relationship
+    staff.characters = characters;
+    await this.staffRepository.save(staff);
 
     // Invalidate cache
     await this.invalidateCacheForEntity(staffId);
@@ -311,7 +327,7 @@ export class StaffsService extends BaseService<Staff> {
     kinds?: string[],
   ): Promise<(Staff & { reactionCounts?: ReactionCount[] }) | null> {
     const staff = await this.findById(id, {
-      relations: ['characterRoles', 'characterRoles.character'],
+      relations: ['characters', 'characters.image'],
     });
     if (!staff) {
       return null;

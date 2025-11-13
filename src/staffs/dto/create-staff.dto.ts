@@ -1,18 +1,18 @@
-import { Transform, Type } from 'class-transformer';
+import { Type } from 'class-transformer';
 import {
-  IsString,
-  IsOptional,
+  IsArray,
+  IsDate,
+  IsIn,
   IsInt,
   IsObject,
-  IsArray,
-  ValidateNested,
+  IsOptional,
+  IsString,
+  Max,
   MaxLength,
   Min,
-  Max,
-  IsIn,
+  ValidateNested,
 } from 'class-validator';
-import { STAFF_CONSTANTS } from 'src/shared/constants';
-import { FuzzyDateDto } from 'src/characters/dto/create-character.dto';
+import { COUNTRY_CODES, STAFF_CONSTANTS } from 'src/shared/constants';
 import { CharacterRoleDto } from './link-character.dto';
 
 /**
@@ -81,85 +81,96 @@ export class StaffNameDto {
 }
 
 /**
- * DTO for creating staff images
- */
-export class StaffImageDto {
-  @IsOptional()
-  @IsString()
-  @MaxLength(STAFF_CONSTANTS.SITE_URL_MAX_LENGTH)
-  large?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(STAFF_CONSTANTS.SITE_URL_MAX_LENGTH)
-  medium?: string;
-}
-
-/**
- * DTO for years active
- */
-export class YearsActiveDto {
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1900)
-  @Max(2100)
-  startYear?: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1900)
-  @Max(2100)
-  endYear?: number;
-}
-
-/**
  * DTO for creating a new staff
  */
 export class CreateStaffDto {
+  /**
+   * The MAL id of the staff
+   * MyAnimeList ID for cross-reference
+   */
+  @IsOptional()
+  @IsString()
+  myAnimeListId?: string;
+
+  /**
+   * The AniList id of the staff
+   * AniList ID for cross-reference
+   */
+  @IsOptional()
+  @IsString()
+  aniListId?: string;
+
+  /**
+   * Staff names in different languages and formats
+   */
   @IsOptional()
   @ValidateNested()
   @Type(() => StaffNameDto)
   name?: StaffNameDto;
 
+  /**
+   * The primary language of the staff member
+   */
   @IsOptional()
   @IsString()
-  @MaxLength(STAFF_CONSTANTS.LANGUAGE_MAX_LENGTH)
-  @IsIn(Object.values(STAFF_CONSTANTS.LANGUAGES))
-  languageV2?: string;
+  @IsIn(COUNTRY_CODES.map((country) => country.code))
+  language?: string;
 
+  /**
+   * The ID of the staff image
+   */
   @IsOptional()
-  @ValidateNested()
-  @Type(() => StaffImageDto)
-  image?: StaffImageDto;
+  @IsString()
+  imageId?: string;
 
+  /**
+   * General description of the staff member
+   * Can be in markdown format
+   */
   @IsOptional()
   @IsString()
   @MaxLength(STAFF_CONSTANTS.DESCRIPTION_MAX_LENGTH)
   description?: string;
 
+  /**
+   * The person's primary occupations
+   * Examples: ['Voice Actor', 'Director', 'Producer', 'Composer']
+   */
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
   @MaxLength(STAFF_CONSTANTS.OCCUPATION_MAX_LENGTH, { each: true })
   primaryOccupations?: string[];
 
+  /**
+   * Staff's gender
+   * Usually Male, Female, or Non-binary but can be any string
+   */
   @IsOptional()
   @IsString()
   @MaxLength(STAFF_CONSTANTS.GENDER_MAX_LENGTH)
+  @IsIn(Object.values(STAFF_CONSTANTS.GENDER))
   gender?: string;
 
+  /**
+   * Staff's birth date
+   */
   @IsOptional()
-  @ValidateNested()
-  @Type(() => FuzzyDateDto)
-  dateOfBirth?: FuzzyDateDto;
+  @IsDate()
+  @Type(() => Date)
+  dateOfBirth?: Date;
 
+  /**
+   * Staff's death date
+   */
   @IsOptional()
-  @ValidateNested()
-  @Type(() => FuzzyDateDto)
-  dateOfDeath?: FuzzyDateDto;
+  @IsDate()
+  @Type(() => Date)
+  dateOfDeath?: Date;
 
+  /**
+   * The person's age in years
+   */
   @IsOptional()
   @Type(() => Number)
   @IsInt()
@@ -167,37 +178,70 @@ export class CreateStaffDto {
   @Max(150)
   age?: number;
 
+  /**
+   * The staff's debut date
+   */
   @IsOptional()
-  @ValidateNested()
-  @Type(() => YearsActiveDto)
-  yearsActive?: YearsActiveDto;
+  @IsDate()
+  @Type(() => Date)
+  debutDate?: Date;
 
+  /**
+   * The person's birthplace or hometown
+   */
   @IsOptional()
   @IsString()
   @MaxLength(STAFF_CONSTANTS.HOME_TOWN_MAX_LENGTH)
   homeTown?: string;
 
+  /**
+   * The person's blood type
+   */
   @IsOptional()
   @IsString()
   @MaxLength(STAFF_CONSTANTS.BLOOD_TYPE_MAX_LENGTH)
+  @IsIn(Object.values(STAFF_CONSTANTS.BLOOD_TYPES))
   bloodType?: string;
 
+  /**
+   * URL for the staff page on the website
+   */
   @IsOptional()
   @IsString()
   @MaxLength(STAFF_CONSTANTS.SITE_URL_MAX_LENGTH)
   siteUrl?: string;
 
+  /**
+   * Notes for site moderators
+   */
   @IsOptional()
   @IsString()
   @MaxLength(STAFF_CONSTANTS.MOD_NOTES_MAX_LENGTH)
-  modNotes?: string;
+  notes?: string;
 
+  /**
+   * Staff status
+   * Values: 'active' | 'inactive' | 'pending' | 'archived'
+   */
+  @IsOptional()
+  @IsString()
+  @IsIn(Object.values(STAFF_CONSTANTS.STATUS))
+  status?: string;
+
+  /**
+   * Characters to link with role information
+   * This is for convenience when creating staff with character links
+   */
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => CharacterRoleDto)
-  characters?: CharacterRoleDto[]; // Characters to link with role information
+  characters?: CharacterRoleDto[];
 
+  /**
+   * Additional metadata for staff
+   * JSON field for storing structured data
+   */
   @IsOptional()
   @IsObject()
   metadata?: Record<string, unknown>;

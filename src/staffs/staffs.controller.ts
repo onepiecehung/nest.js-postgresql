@@ -1,25 +1,25 @@
 import {
-  Controller,
-  Get,
-  Post,
   Body,
-  Patch,
-  Param,
+  Controller,
   Delete,
-  Query,
+  Get,
   HttpCode,
   HttpStatus,
+  Param,
+  Patch,
+  Post,
+  Query,
 } from '@nestjs/common';
 import { Auth } from 'src/common/decorators';
-import { AdvancedPaginationDto, CursorPaginationDto } from 'src/common/dto';
+import { CursorPaginationDto } from 'src/common/dto';
 import { SnowflakeIdPipe } from 'src/common/pipes';
-import { StaffsService } from './staffs.service';
 import {
   CreateStaffDto,
-  UpdateStaffDto,
-  QueryStaffDto,
   LinkCharactersDto,
+  QueryStaffDto,
+  UpdateStaffDto,
 } from './dto';
+import { StaffsService } from './staffs.service';
 
 @Controller('staffs')
 export class StaffsController {

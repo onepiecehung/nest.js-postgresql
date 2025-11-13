@@ -34,36 +34,6 @@ export const STAFF_CONSTANTS = {
     AB: 'AB',
     O: 'O',
   },
-
-  // Common languages
-  LANGUAGES: {
-    JAPANESE: 'Japanese',
-    ENGLISH: 'English',
-    KOREAN: 'Korean',
-    ITALIAN: 'Italian',
-    SPANISH: 'Spanish',
-    PORTUGUESE: 'Portuguese',
-    FRENCH: 'French',
-    GERMAN: 'German',
-    HEBREW: 'Hebrew',
-    HUNGARIAN: 'Hungarian',
-    CHINESE: 'Chinese',
-    ARABIC: 'Arabic',
-    FILIPINO: 'Filipino',
-    CATALAN: 'Catalan',
-    FINNISH: 'Finnish',
-    TURKISH: 'Turkish',
-    DUTCH: 'Dutch',
-    SWEDISH: 'Swedish',
-    THAI: 'Thai',
-    TAGALOG: 'Tagalog',
-    MALAYSIAN: 'Malaysian',
-    INDONESIAN: 'Indonesian',
-    VIETNAMESE: 'Vietnamese',
-    NEPALI: 'Nepali',
-    HINDI: 'Hindi',
-    URDU: 'Urdu',
-  },
 } as const;
 
 // Type definitions for better TypeScript support
