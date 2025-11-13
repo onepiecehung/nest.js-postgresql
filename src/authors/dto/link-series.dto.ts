@@ -6,6 +6,8 @@ import {
   MaxLength,
   IsBoolean,
   IsIn,
+  IsInt,
+  Min,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { AUTHOR_CONSTANTS } from 'src/shared/constants';
@@ -35,7 +37,7 @@ export class SeriesRoleDto {
   @IsOptional()
   @IsString()
   @MaxLength(500)
-  roleNotes?: string;
+  notes?: string;
 
   /**
    * Whether this author is the primary/main author of the series
@@ -43,6 +45,15 @@ export class SeriesRoleDto {
   @IsOptional()
   @IsBoolean()
   isMain?: boolean;
+
+  /**
+   * Sort order for displaying authors in lists
+   * Lower values appear first. Main author typically has sortOrder = 0.
+   */
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  sortOrder?: number;
 }
 
 /**

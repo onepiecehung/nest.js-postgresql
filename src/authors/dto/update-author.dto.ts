@@ -10,7 +10,8 @@ import {
   IsBoolean,
 } from 'class-validator';
 import { AUTHOR_CONSTANTS } from 'src/shared/constants';
-import { AuthorNameDto, SeriesRoleDto } from './create-author.dto';
+import { AuthorNameDto } from './create-author.dto';
+import { SeriesRoleDto } from './link-series.dto';
 import { FuzzyDateDto } from 'src/characters/dto/create-character.dto';
 
 /**
@@ -31,12 +32,12 @@ export class UpdateAuthorDto {
   @IsOptional()
   @ValidateNested()
   @Type(() => FuzzyDateDto)
-  birthDate?: FuzzyDateDto;
+  dateOfBirth?: FuzzyDateDto;
 
   @IsOptional()
   @ValidateNested()
   @Type(() => FuzzyDateDto)
-  deathDate?: FuzzyDateDto;
+  dateOfDeath?: FuzzyDateDto;
 
   @IsOptional()
   @IsString()
@@ -60,7 +61,7 @@ export class UpdateAuthorDto {
   @IsOptional()
   @IsString()
   @MaxLength(AUTHOR_CONSTANTS.MOD_NOTES_MAX_LENGTH)
-  modNotes?: string;
+  notes?: string;
 
   @IsOptional()
   @IsString()

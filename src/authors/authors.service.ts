@@ -6,17 +6,12 @@ import { TypeOrmBaseRepository } from 'src/common/repositories/typeorm.base-repo
 import { BaseService } from 'src/common/services';
 import { ReactionCount } from 'src/reactions/entities/reaction-count.entity';
 import { ReactionsService } from 'src/reactions/reactions.service';
-import { CacheService } from 'src/shared/services';
-import { DeepPartial, In, Repository } from 'typeorm';
 import { Series } from 'src/series/entities/series.entity';
-import { Author } from './entities/author.entity';
+import { CacheService } from 'src/shared/services';
+import { DeepPartial, Repository } from 'typeorm';
+import { CreateAuthorDto, SeriesRoleDto, UpdateAuthorDto } from './dto';
 import { AuthorSeries } from './entities/author-series.entity';
-import {
-  CreateAuthorDto,
-  UpdateAuthorDto,
-  SeriesRoleDto,
-  LinkSeriesDto,
-} from './dto';
+import { Author } from './entities/author.entity';
 
 @Injectable()
 export class AuthorsService extends BaseService<Author> {
@@ -143,27 +138,26 @@ export class AuthorsService extends BaseService<Author> {
    * Create an author with linked series
    */
   async createWithSeries(dto: CreateAuthorDto): Promise<Author> {
-    const { series, birthDate, deathDate, modNotes, ...authorData } = dto;
+    const { series, dateOfBirth, dateOfDeath, ...authorData } = dto;
 
     // Map DTO fields to entity fields
     const entityData: DeepPartial<Author> = {
       ...authorData,
       // Convert FuzzyDateDto to Date for timestamptz field
-      dateOfBirth: birthDate?.year
+      dateOfBirth: dateOfBirth?.year
         ? new Date(
-            birthDate.year,
-            birthDate.month ? birthDate.month - 1 : 0,
-            birthDate.day || 1,
+            dateOfBirth.year,
+            dateOfBirth.month ? dateOfBirth.month - 1 : 0,
+            dateOfBirth.day || 1,
           )
         : undefined,
-      dateOfDeath: deathDate?.year
+      dateOfDeath: dateOfDeath?.year
         ? new Date(
-            deathDate.year,
-            deathDate.month ? deathDate.month - 1 : 0,
-            deathDate.day || 1,
+            dateOfDeath.year,
+            dateOfDeath.month ? dateOfDeath.month - 1 : 0,
+            dateOfDeath.day || 1,
           )
         : undefined,
-      notes: modNotes, // Map modNotes from DTO to notes in entity
     };
 
     // Create author
@@ -183,30 +177,27 @@ export class AuthorsService extends BaseService<Author> {
    * Update an author and optionally update series links
    */
   async updateWithSeries(id: string, dto: UpdateAuthorDto): Promise<Author> {
-    const { series, birthDate, deathDate, modNotes, ...authorData } = dto;
+    const { series, dateOfBirth, dateOfDeath, ...authorData } = dto;
 
     // Map DTO fields to entity fields
     const entityData: DeepPartial<Author> = {
       ...authorData,
     };
 
-    // Map date fields if provided
-    if (birthDate?.year) {
+    // Convert FuzzyDateDto to Date for timestamptz fields if provided
+    if (dateOfBirth?.year) {
       entityData.dateOfBirth = new Date(
-        birthDate.year,
-        birthDate.month ? birthDate.month - 1 : 0,
-        birthDate.day || 1,
+        dateOfBirth.year,
+        dateOfBirth.month ? dateOfBirth.month - 1 : 0,
+        dateOfBirth.day || 1,
       );
     }
-    if (deathDate?.year) {
+    if (dateOfDeath?.year) {
       entityData.dateOfDeath = new Date(
-        deathDate.year,
-        deathDate.month ? deathDate.month - 1 : 0,
-        deathDate.day || 1,
+        dateOfDeath.year,
+        dateOfDeath.month ? dateOfDeath.month - 1 : 0,
+        dateOfDeath.day || 1,
       );
-    }
-    if (modNotes !== undefined) {
-      entityData.notes = modNotes; // Map modNotes from DTO to notes in entity
     }
 
     // Update author
@@ -246,9 +237,9 @@ export class AuthorsService extends BaseService<Author> {
         authorId,
         seriesId: role.seriesId,
         role: role.role,
-        notes: role.roleNotes, // Map roleNotes from DTO to notes in entity
+        notes: role.notes,
         isMain: role.isMain || false,
-        sortOrder: index, // Use index as default sortOrder
+        sortOrder: role.sortOrder !== undefined ? role.sortOrder : index, // Use provided sortOrder or index as default
       });
     });
 
