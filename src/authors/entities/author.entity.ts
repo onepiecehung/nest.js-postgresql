@@ -24,7 +24,6 @@ export interface AuthorName {
  * Authors are typically linked to manga/novel series.
  */
 @Entity('authors')
-@Index(['nationality']) // Index for filtering by nationality
 export class Author extends BaseEntityCustom {
   /**
    * Author names in different languages and formats
