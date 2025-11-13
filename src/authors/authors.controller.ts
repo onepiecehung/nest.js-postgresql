@@ -53,6 +53,32 @@ export class AuthorsController {
   }
 
   /**
+   * Get an author by ID with reaction counts
+   */
+  @Get(':id/reactions')
+  async findOneWithReactions(
+    @Param('id', SnowflakeIdPipe) id: string,
+    @Query('kinds') kinds?: string,
+  ) {
+    const kindsArray = kinds ? kinds.split(',') : undefined;
+    return this.authorsService.findByIdWithReactions(id, kindsArray);
+  }
+
+  /**
+   * Link series to an author with role information
+   */
+  @Post(':id/series')
+  @Auth()
+  @HttpCode(HttpStatus.OK)
+  async linkSeries(
+    @Param('id', SnowflakeIdPipe) id: string,
+    @Body() linkSeriesDto: LinkSeriesDto,
+  ) {
+    await this.authorsService.linkSeriesWithRoles(id, linkSeriesDto.series);
+    return { message: 'Series linked successfully' };
+  }
+
+  /**
    * Get an author by ID
    */
   @Get(':id')
@@ -84,31 +110,5 @@ export class AuthorsController {
   @HttpCode(HttpStatus.NO_CONTENT)
   async remove(@Param('id', SnowflakeIdPipe) id: string) {
     return this.authorsService.softDelete(id);
-  }
-
-  /**
-   * Get an author by ID with reaction counts
-   */
-  @Get(':id/reactions')
-  async findOneWithReactions(
-    @Param('id', SnowflakeIdPipe) id: string,
-    @Query('kinds') kinds?: string,
-  ) {
-    const kindsArray = kinds ? kinds.split(',') : undefined;
-    return this.authorsService.findByIdWithReactions(id, kindsArray);
-  }
-
-  /**
-   * Link series to an author with role information
-   */
-  @Post(':id/series')
-  @Auth()
-  @HttpCode(HttpStatus.OK)
-  async linkSeries(
-    @Param('id', SnowflakeIdPipe) id: string,
-    @Body() linkSeriesDto: LinkSeriesDto,
-  ) {
-    await this.authorsService.linkSeriesWithRoles(id, linkSeriesDto.series);
-    return { message: 'Series linked successfully' };
   }
 }

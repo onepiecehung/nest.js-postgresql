@@ -48,25 +48,31 @@ export class AuthorsService extends BaseService<Author> {
           id: true,
           name: true,
           description: true,
-          birthDate: true,
-          deathDate: true,
+          dateOfBirth: true,
+          dateOfDeath: true,
           nationality: true,
           website: true,
           siteUrl: true,
           socialLinks: true,
+          notes: true,
           status: true,
           createdAt: true,
           updatedAt: true,
           seriesRoles: {
             id: true,
             role: true,
-            roleNotes: true,
+            notes: true,
             isMain: true,
+            sortOrder: true,
             series: {
               id: true,
               title: true,
               type: true,
-              coverImage: true,
+              format: true,
+              coverImage: {
+                id: true,
+                url: true,
+              },
             },
           },
         },
@@ -137,10 +143,31 @@ export class AuthorsService extends BaseService<Author> {
    * Create an author with linked series
    */
   async createWithSeries(dto: CreateAuthorDto): Promise<Author> {
-    const { series, ...authorData } = dto;
+    const { series, birthDate, deathDate, modNotes, ...authorData } = dto;
+
+    // Map DTO fields to entity fields
+    const entityData: DeepPartial<Author> = {
+      ...authorData,
+      // Convert FuzzyDateDto to Date for timestamptz field
+      dateOfBirth: birthDate?.year
+        ? new Date(
+            birthDate.year,
+            birthDate.month ? birthDate.month - 1 : 0,
+            birthDate.day || 1,
+          )
+        : undefined,
+      dateOfDeath: deathDate?.year
+        ? new Date(
+            deathDate.year,
+            deathDate.month ? deathDate.month - 1 : 0,
+            deathDate.day || 1,
+          )
+        : undefined,
+      notes: modNotes, // Map modNotes from DTO to notes in entity
+    };
 
     // Create author
-    const author = await this.create(authorData);
+    const author = await this.create(entityData);
 
     // Link series with role information if provided
     if (series && series.length > 0) {
@@ -156,10 +183,34 @@ export class AuthorsService extends BaseService<Author> {
    * Update an author and optionally update series links
    */
   async updateWithSeries(id: string, dto: UpdateAuthorDto): Promise<Author> {
-    const { series, ...authorData } = dto;
+    const { series, birthDate, deathDate, modNotes, ...authorData } = dto;
+
+    // Map DTO fields to entity fields
+    const entityData: DeepPartial<Author> = {
+      ...authorData,
+    };
+
+    // Map date fields if provided
+    if (birthDate?.year) {
+      entityData.dateOfBirth = new Date(
+        birthDate.year,
+        birthDate.month ? birthDate.month - 1 : 0,
+        birthDate.day || 1,
+      );
+    }
+    if (deathDate?.year) {
+      entityData.dateOfDeath = new Date(
+        deathDate.year,
+        deathDate.month ? deathDate.month - 1 : 0,
+        deathDate.day || 1,
+      );
+    }
+    if (modNotes !== undefined) {
+      entityData.notes = modNotes; // Map modNotes from DTO to notes in entity
+    }
 
     // Update author
-    await this.update(id, authorData);
+    await this.update(id, entityData);
 
     // Update series links if provided
     if (series !== undefined) {
@@ -190,13 +241,14 @@ export class AuthorsService extends BaseService<Author> {
     await this.authorSeriesRepository.delete({ authorId });
 
     // Create new relationships with role information
-    const authorSeriesList = seriesRoles.map((role) => {
+    const authorSeriesList = seriesRoles.map((role, index) => {
       return this.authorSeriesRepository.create({
         authorId,
         seriesId: role.seriesId,
         role: role.role,
-        roleNotes: role.roleNotes,
+        notes: role.roleNotes, // Map roleNotes from DTO to notes in entity
         isMain: role.isMain || false,
+        sortOrder: index, // Use index as default sortOrder
       });
     });
 
