@@ -1,10 +1,8 @@
 import { instanceToPlain } from 'class-transformer';
-import { FuzzyDate } from 'src/characters/entities/character.entity';
 import { AUTHOR_CONSTANTS } from 'src/shared/constants';
 import { BaseEntityCustom } from 'src/shared/entities/base.entity';
 import { Column, Entity, Index, OneToMany } from 'typeorm';
 import { AuthorSeries } from './author-series.entity';
-
 /**
  * Author Name structure
  * Stores author names in different languages and formats
@@ -48,17 +46,15 @@ export class Author extends BaseEntityCustom {
 
   /**
    * Author's birth date
-   * Stored as JSONB to support partial dates (FuzzyDate)
    */
-  @Column({ type: 'jsonb', nullable: true })
-  birthDate?: FuzzyDate;
+  @Column({ type: 'timestamptz', nullable: true })
+  dateOfBirth?: Date;
 
   /**
    * Author's death date (if deceased)
-   * Stored as JSONB to support partial dates (FuzzyDate)
    */
-  @Column({ type: 'jsonb', nullable: true })
-  deathDate?: FuzzyDate;
+  @Column({ type: 'timestamptz', nullable: true })
+  dateOfDeath?: Date;
 
   /**
    * Author's nationality or country of origin
@@ -66,8 +62,7 @@ export class Author extends BaseEntityCustom {
    */
   @Index() // Index for filtering by nationality
   @Column({
-    type: 'varchar',
-    length: AUTHOR_CONSTANTS.NATIONALITY_MAX_LENGTH,
+    type: 'text',
     nullable: true,
   })
   nationality?: string;
@@ -76,8 +71,7 @@ export class Author extends BaseEntityCustom {
    * Author's official website URL
    */
   @Column({
-    type: 'varchar',
-    length: AUTHOR_CONSTANTS.WEBSITE_MAX_LENGTH,
+    type: 'text',
     nullable: true,
   })
   website?: string;
@@ -86,8 +80,7 @@ export class Author extends BaseEntityCustom {
    * URL for the author page on the website
    */
   @Column({
-    type: 'varchar',
-    length: AUTHOR_CONSTANTS.SITE_URL_MAX_LENGTH,
+    type: 'text',
     nullable: true,
   })
   siteUrl?: string;
@@ -101,42 +94,35 @@ export class Author extends BaseEntityCustom {
   socialLinks?: Record<string, string>;
 
   /**
-   * Notes for site moderators
+   * Notes for the author
    */
   @Column({
     type: 'text',
     nullable: true,
   })
-  modNotes?: string;
+  notes?: string;
 
   /**
    * Author status
    */
   @Index() // Index for filtering by status
   @Column({
-    type: 'varchar',
-    length: 20,
-    default: AUTHOR_CONSTANTS.STATUS.ACTIVE,
+    type: 'enum',
+    enum: AUTHOR_CONSTANTS.STATUS,
+    nullable: true,
   })
   status?: string;
 
   /**
-   * Series created by this author
-   * One-to-Many relationship with AuthorSeries junction entity
-   * One author can create multiple series
+   * Series created by this author.
+   * One-to-Many relationship with AuthorSeries junction entity.
+   * One author can create multiple series with different roles.
    */
   @OneToMany(() => AuthorSeries, (authorSeries) => authorSeries.author, {
     cascade: false, // Don't cascade delete series relationships when author is deleted
     eager: false, // Don't load series by default for performance
   })
   seriesRoles?: AuthorSeries[];
-
-  /**
-   * Additional metadata for author
-   * JSON field for storing structured data
-   */
-  @Column({ type: 'jsonb', nullable: true })
-  metadata?: Record<string, unknown>;
 
   /**
    * Convert entity to JSON with proper serialization

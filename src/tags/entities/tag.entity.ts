@@ -1,6 +1,7 @@
-import { BaseEntityCustom } from 'src/shared/entities/base.entity';
-import { Column, Entity, Index, OneToMany } from 'typeorm';
 import { Article } from 'src/articles/entities/article.entity';
+import { Series } from 'src/series/entities/series.entity';
+import { BaseEntityCustom } from 'src/shared/entities/base.entity';
+import { Column, Entity, Index, ManyToMany, OneToMany } from 'typeorm';
 
 /**
  * Tag Entity
@@ -165,6 +166,13 @@ export class Tag extends BaseEntityCustom {
    */
   @OneToMany(() => Article, (article) => article.tags)
   articles?: Article[];
+
+  /**
+   * Series that use this tag
+   * Many-to-Many relationship through series_tags junction table
+   */
+  @ManyToMany(() => Series, (series) => series.tags)
+  series?: Series[];
 
   /**
    * Get display name with icon if available

@@ -1,9 +1,10 @@
 import { instanceToPlain } from 'class-transformer';
+import { Media } from 'src/media/entities/media.entity';
+import { Series } from 'src/series/entities/series.entity';
 import { CHARACTER_CONSTANTS } from 'src/shared/constants';
 import { BaseEntityCustom } from 'src/shared/entities/base.entity';
-import { Column, Entity, Index, OneToMany } from 'typeorm';
-import { StaffCharacter } from 'src/staffs/entities/staff-character.entity';
-import { SeriesCharacter } from 'src/series/entities/series-character.entity';
+import { Staff } from 'src/staffs/entities/staff.entity';
+import { Column, Entity, Index, JoinColumn, ManyToOne } from 'typeorm';
 
 /**
  * Character Name structure
@@ -19,26 +20,6 @@ export interface CharacterName {
   alternativeSpoiler?: string[];
   userPreferred?: string;
 }
-
-/**
- * Character Image structure
- * Stores character image URLs
- */
-export interface CharacterImage {
-  large?: string;
-  medium?: string;
-}
-
-/**
- * Fuzzy Date structure for date of birth
- * Supports partial dates (year only, year-month, or full date)
- */
-export interface FuzzyDate {
-  year?: number;
-  month?: number;
-  day?: number;
-}
-
 /**
  * Character Entity
  *
@@ -46,8 +27,18 @@ export interface FuzzyDate {
  * Based on AniList API Character object structure.
  */
 @Entity('characters')
-@Index(['gender']) // Index for filtering by gender
 export class Character extends BaseEntityCustom {
+  /**
+   * The MAL id of the character
+   * MyAnimeList ID for cross-reference
+   */
+  @Index() // Index for MAL ID lookup
+  @Column({ type: 'string', nullable: true })
+  myAnimeListId?: string;
+
+  @Index() // Index for MAL ID lookup
+  @Column({ type: 'string', nullable: true })
+  aniListId?: string;
   /**
    * Character names in different languages and formats
    * Stored as JSONB for flexible name structure
@@ -56,11 +47,17 @@ export class Character extends BaseEntityCustom {
   name?: CharacterName;
 
   /**
-   * Character images (large, medium)
-   * Stored as JSONB for image URLs
+   * The ID of the character image
    */
-  @Column({ type: 'jsonb', nullable: true })
-  image?: CharacterImage;
+  @Column({ type: 'bigint', nullable: true })
+  imageId?: string;
+
+  /**
+   * The character image
+   */
+  @ManyToOne(() => Media, { nullable: true })
+  @JoinColumn({ name: 'imageId', referencedColumnName: 'id' })
+  image: Media;
 
   /**
    * General description of the character
@@ -77,8 +74,7 @@ export class Character extends BaseEntityCustom {
    * Usually Male, Female, or Non-binary but can be any string
    */
   @Column({
-    type: 'varchar',
-    length: CHARACTER_CONSTANTS.GENDER_MAX_LENGTH,
+    type: 'text',
     nullable: true,
   })
   gender?: string;
@@ -87,8 +83,8 @@ export class Character extends BaseEntityCustom {
    * Character's birth date
    * Stored as JSONB to support partial dates (FuzzyDate)
    */
-  @Column({ type: 'jsonb', nullable: true })
-  dateOfBirth?: FuzzyDate;
+  @Column({ type: 'timestamptz', nullable: true })
+  dateOfBirth?: Date;
 
   /**
    * Character's age
@@ -122,13 +118,13 @@ export class Character extends BaseEntityCustom {
   siteUrl?: string;
 
   /**
-   * Notes for site moderators
+   * Notes for the character
    */
   @Column({
     type: 'text',
     nullable: true,
   })
-  modNotes?: string;
+  notes?: string;
 
   /**
    * Character status
@@ -149,34 +145,39 @@ export class Character extends BaseEntityCustom {
   metadata?: Record<string, unknown>;
 
   /**
-   * Staff members (voice actors) who voice this character
-   * One-to-Many relationship with StaffCharacter junction entity
-   * One character can be voiced by multiple staff members
+   * The ID of the staff member who voices this character
    */
-  @OneToMany(
-    () => StaffCharacter,
-    (staffCharacter) => staffCharacter.character,
-    {
-      cascade: false, // Don't cascade delete staff relationships when character is deleted
-      eager: false, // Don't load staff by default for performance
-    },
-  )
-  staffRoles?: StaffCharacter[];
+  @Column({ type: 'bigint', nullable: false })
+  staffId: string;
+
+  /**
+   * Staff member (voice actor) who voices this character
+   * Many-to-One relationship with Staff entity
+   */
+  @ManyToOne(() => Staff, {
+    nullable: false,
+    onDelete: 'CASCADE',
+  })
+  @JoinColumn({ name: 'staffId', referencedColumnName: 'id' })
+  staff: Staff;
+
+  /**
+   * The ID of the series in which this character appears
+   */
+  @Column({ type: 'bigint', nullable: false })
+  seriesId: string;
 
   /**
    * Series in which this character appears
-   * One-to-Many relationship with SeriesCharacter junction entity
-   * One character can appear in multiple series with different roles
+   * Many-to-One relationship with Series entity
+   * One character can appear in one series
    */
-  @OneToMany(
-    () => SeriesCharacter,
-    (seriesCharacter) => seriesCharacter.character,
-    {
-      cascade: false, // Don't cascade delete series relationships when character is deleted
-      eager: false, // Don't load series by default for performance
-    },
-  )
-  seriesRoles?: SeriesCharacter[];
+  @ManyToOne(() => Series, {
+    nullable: false,
+    onDelete: 'CASCADE',
+  })
+  @JoinColumn({ name: 'seriesId', referencedColumnName: 'id' })
+  series: Series;
 
   /**
    * Convert entity to JSON with proper serialization

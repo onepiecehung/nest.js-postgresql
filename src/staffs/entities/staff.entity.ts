@@ -1,10 +1,17 @@
 import { instanceToPlain } from 'class-transformer';
-import { FuzzyDate } from 'src/characters/entities/character.entity';
+import { Character } from 'src/characters/entities/character.entity';
+import { Media } from 'src/media/entities/media.entity';
 import { STAFF_CONSTANTS } from 'src/shared/constants';
 import { BaseEntityCustom } from 'src/shared/entities/base.entity';
-import { Column, Entity, Index, OneToMany } from 'typeorm';
-import { StaffCharacter } from './staff-character.entity';
-import { SeriesStaff } from 'src/series/entities/series-staff.entity';
+import {
+  Column,
+  Entity,
+  Index,
+  JoinColumn,
+  ManyToOne,
+  OneToMany,
+} from 'typeorm';
+import { StaffSeries } from './staff-series.entity';
 
 /**
  * Staff Name structure
@@ -49,16 +56,6 @@ export interface StaffName {
    */
   userPreferred?: string;
 }
-
-/**
- * Staff Image structure
- * Stores staff image URLs
- */
-export interface StaffImage {
-  large?: string;
-  medium?: string;
-}
-
 /**
  * Staff Entity
  *
@@ -66,9 +63,18 @@ export interface StaffImage {
  * Based on AniList API Staff object structure.
  */
 @Entity('staffs')
-@Index(['gender']) // Index for filtering by gender
-@Index(['languageV2']) // Index for filtering by language
 export class Staff extends BaseEntityCustom {
+  /**
+   * The MAL id of the staff
+   * MyAnimeList ID for cross-reference
+   */
+  @Index() // Index for MAL ID lookup
+  @Column({ type: 'string', nullable: true })
+  myAnimeListId?: string;
+
+  @Index() // Index for MAL ID lookup
+  @Column({ type: 'string', nullable: true })
+  aniListId?: string;
   /**
    * Staff names in different languages and formats
    * Stored as JSONB for flexible name structure
@@ -85,14 +91,20 @@ export class Staff extends BaseEntityCustom {
     length: STAFF_CONSTANTS.LANGUAGE_MAX_LENGTH,
     nullable: true,
   })
-  languageV2?: string;
+  language?: string;
 
   /**
-   * Staff images (large, medium)
-   * Stored as JSONB for image URLs
+   * The ID of the staff image
    */
-  @Column({ type: 'jsonb', nullable: true })
-  image?: StaffImage;
+  @Column({ type: 'bigint', nullable: true })
+  imageId: string;
+
+  /**
+   * The staff image
+   */
+  @ManyToOne(() => Media, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'imageId', referencedColumnName: 'id' })
+  image: Media;
 
   /**
    * General description of the staff member
@@ -127,15 +139,15 @@ export class Staff extends BaseEntityCustom {
    * Staff's birth date
    * Stored as JSONB to support partial dates (FuzzyDate)
    */
-  @Column({ type: 'jsonb', nullable: true })
-  dateOfBirth?: FuzzyDate;
+  @Column({ type: 'timestamptz', nullable: true })
+  dateOfBirth?: Date;
 
   /**
    * Staff's death date
    * Stored as JSONB to support partial dates (FuzzyDate)
    */
-  @Column({ type: 'jsonb', nullable: true })
-  dateOfDeath?: FuzzyDate;
+  @Column({ type: 'timestamptz', nullable: true })
+  dateOfDeath?: Date;
 
   /**
    * The person's age in years
@@ -144,12 +156,10 @@ export class Staff extends BaseEntityCustom {
   age?: number;
 
   /**
-   * Years active [startYear, endYear]
-   * If the 2nd value is not present, staff is still active
-   * Stored as JSONB array
+   * The staff's debut date
    */
-  @Column({ type: 'jsonb', nullable: true })
-  yearsActive?: [number, number?];
+  @Column({ type: 'timestamptz', nullable: true })
+  debutDate?: Date;
 
   /**
    * The person's birthplace or hometown
@@ -188,7 +198,7 @@ export class Staff extends BaseEntityCustom {
     type: 'text',
     nullable: true,
   })
-  modNotes?: string;
+  notes?: string;
 
   /**
    * Staff status
@@ -206,22 +216,22 @@ export class Staff extends BaseEntityCustom {
    * One-to-Many relationship with StaffCharacter junction entity
    * One staff can voice multiple characters with role information
    */
-  @OneToMany(() => StaffCharacter, (staffCharacter) => staffCharacter.staff, {
+  @OneToMany(() => Character, (character) => character.staff, {
     cascade: false, // Don't cascade delete character relationships when staff is deleted
     eager: false, // Don't load characters by default for performance
   })
-  characterRoles?: StaffCharacter[];
+  characters?: Character[];
 
   /**
-   * Series on which this staff member worked
-   * One-to-Many relationship with SeriesStaff junction entity
-   * One staff can work on multiple series with different roles
+   * Series on which this staff member worked.
+   * One-to-Many relationship with StaffSeries junction entity.
+   * One staff can work on multiple series with different roles.
    */
-  @OneToMany(() => SeriesStaff, (seriesStaff) => seriesStaff.staff, {
+  @OneToMany(() => StaffSeries, (staffSeries) => staffSeries.staff, {
     cascade: false, // Don't cascade delete series relationships when staff is deleted
     eager: false, // Don't load series by default for performance
   })
-  seriesRoles?: SeriesStaff[];
+  seriesRoles?: StaffSeries[];
 
   /**
    * Additional metadata for staff

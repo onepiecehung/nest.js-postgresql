@@ -2,7 +2,7 @@ import { instanceToPlain } from 'class-transformer';
 import { STUDIO_CONSTANTS } from 'src/shared/constants';
 import { BaseEntityCustom } from 'src/shared/entities/base.entity';
 import { Column, Entity, Index, OneToMany } from 'typeorm';
-import { SeriesStudio } from 'src/series/entities/series-studio.entity';
+import { StudioSeries } from './studio-series.entity';
 
 /**
  * Studio Entity
@@ -11,17 +11,26 @@ import { SeriesStudio } from 'src/series/entities/series-studio.entity';
  * Based on AniList API Studio object: https://docs.anilist.co/reference/object/studio
  */
 @Entity('studios')
-@Index(['isAnimationStudio']) // Index for filtering by studio type
 export class Studio extends BaseEntityCustom {
+  /**
+   * The MAL id of the studio
+   * MyAnimeList ID for cross-reference
+   */
+  @Index() // Index for MAL ID lookup
+  @Column({ type: 'string', nullable: true })
+  myAnimeListId?: string;
+
+  @Index() // Index for MAL ID lookup
+  @Column({ type: 'string', nullable: true })
+  aniListId?: string;
+
   /**
    * The name of the studio
    * Required field
    */
   @Index() // Index for searching by name
   @Column({
-    type: 'varchar',
-    length: STUDIO_CONSTANTS.NAME_MAX_LENGTH,
-    nullable: false,
+    type: 'text',
   })
   name: string;
 
@@ -31,11 +40,11 @@ export class Studio extends BaseEntityCustom {
    */
   @Index() // Index for filtering by type
   @Column({
-    type: 'boolean',
+    type: 'varchar',
     nullable: false,
-    default: true,
+    default: STUDIO_CONSTANTS.TYPES.ANIMATION_STUDIO,
   })
-  isAnimationStudio: boolean;
+  type?: string;
 
   /**
    * URL for the studio page on the AniList website
@@ -66,15 +75,15 @@ export class Studio extends BaseEntityCustom {
   metadata?: Record<string, unknown>;
 
   /**
-   * Series produced by this studio
-   * One-to-Many relationship with SeriesStudio junction entity
-   * One studio can produce multiple series
+   * Series produced by this studio.
+   * One-to-Many relationship with StudioSeries junction entity.
+   * One studio can produce multiple series with different roles.
    */
-  @OneToMany(() => SeriesStudio, (seriesStudio) => seriesStudio.studio, {
+  @OneToMany(() => StudioSeries, (studioSeries) => studioSeries.studio, {
     cascade: false, // Don't cascade delete series relationships when studio is deleted
     eager: false, // Don't load series by default for performance
   })
-  seriesRoles?: SeriesStudio[];
+  seriesRoles?: StudioSeries[];
 
   /**
    * Convert entity to JSON with proper serialization
