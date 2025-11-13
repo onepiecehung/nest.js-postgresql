@@ -89,7 +89,7 @@ export class ArticlesController {
   }
 
   @Patch(':id')
-  @Auth(undefined, true)
+  @Auth()
   @TrackEvent(
     ANALYTICS_CONSTANTS.EVENT_TYPES.ARTICLE_UPDATE,
     ANALYTICS_CONSTANTS.EVENT_CATEGORIES.CONTENT,
@@ -99,7 +99,6 @@ export class ArticlesController {
     all: ['ARTICLE_EDIT'],
     any: ['ARTICLE_MANAGE_ALL'], // Admin có thể edit tất cả bài viết
   })
-  @Auth()
   update(
     @Param('id', new SnowflakeIdPipe()) id: string,
     @Body() updateArticleDto: UpdateArticleDto,
@@ -108,7 +107,7 @@ export class ArticlesController {
   }
 
   @Patch(':id/publish')
-  @Auth(undefined, true)
+  @Auth()
   @TrackEvent(
     ANALYTICS_CONSTANTS.EVENT_TYPES.ARTICLE_UPDATE,
     ANALYTICS_CONSTANTS.EVENT_CATEGORIES.CONTENT,
@@ -118,7 +117,6 @@ export class ArticlesController {
     all: ['ARTICLE_PUBLISH'],
     any: ['ARTICLE_MANAGE_ALL'], // Admin có thể publish tất cả bài viết
   })
-  @Auth()
   publish(@Param('id', new SnowflakeIdPipe()) id: string) {
     return this.articlesService.updateArticle(id, { status: 'published' });
   }
