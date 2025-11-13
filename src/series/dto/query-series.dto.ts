@@ -1,13 +1,13 @@
 import { Type } from 'class-transformer';
 import {
+  IsArray,
+  IsBoolean,
+  IsIn,
+  IsInt,
   IsOptional,
   IsString,
-  IsInt,
-  IsBoolean,
-  IsArray,
-  Min,
   Max,
-  IsIn,
+  Min,
 } from 'class-validator';
 import { AdvancedPaginationDto } from 'src/common/dto';
 import { SERIES_CONSTANTS } from 'src/shared/constants';
@@ -18,10 +18,6 @@ import { SERIES_CONSTANTS } from 'src/shared/constants';
 export class QuerySeriesDto extends AdvancedPaginationDto {
   @IsOptional()
   @IsString()
-  query?: string; // Search term for series title
-
-  @IsOptional()
-  @IsString()
   @IsIn(Object.values(SERIES_CONSTANTS.TYPE))
   type?: string; // ANIME or MANGA
 
@@ -29,11 +25,6 @@ export class QuerySeriesDto extends AdvancedPaginationDto {
   @IsString()
   @IsIn(Object.values(SERIES_CONSTANTS.FORMAT))
   format?: string;
-
-  @IsOptional()
-  @IsString()
-  @IsIn(Object.values(SERIES_CONSTANTS.RELEASING_STATUS))
-  status?: string;
 
   @IsOptional()
   @IsString()
@@ -60,7 +51,7 @@ export class QuerySeriesDto extends AdvancedPaginationDto {
   @IsOptional()
   @Type(() => Boolean)
   @IsBoolean()
-  isAdult?: boolean;
+  isNsfw?: boolean;
 
   @IsOptional()
   @Type(() => Boolean)
