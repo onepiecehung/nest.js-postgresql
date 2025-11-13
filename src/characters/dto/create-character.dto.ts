@@ -1,22 +1,15 @@
-import { Transform, Type } from 'class-transformer';
+import { Type } from 'class-transformer';
 import {
-  IsString,
-  IsOptional,
-  IsBoolean,
-  IsInt,
-  IsObject,
   IsArray,
-  ValidateNested,
+  IsBoolean,
+  IsDate,
+  IsObject,
+  IsOptional,
+  IsString,
   MaxLength,
-  Min,
-  Max,
+  ValidateNested,
 } from 'class-validator';
 import { CHARACTER_CONSTANTS } from 'src/shared/constants';
-import {
-  CharacterName,
-  CharacterImage,
-  FuzzyDate,
-} from 'src/characters/entities/character.entity';
 
 /**
  * DTO for creating a character name
@@ -64,48 +57,6 @@ export class CharacterNameDto {
   @MaxLength(CHARACTER_CONSTANTS.NAME_MAX_LENGTH)
   userPreferred?: string;
 }
-
-/**
- * DTO for creating character images
- */
-export class CharacterImageDto {
-  @IsOptional()
-  @IsString()
-  @MaxLength(CHARACTER_CONSTANTS.SITE_URL_MAX_LENGTH)
-  large?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(CHARACTER_CONSTANTS.SITE_URL_MAX_LENGTH)
-  medium?: string;
-}
-
-/**
- * DTO for fuzzy date (date of birth)
- */
-export class FuzzyDateDto {
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1900)
-  @Max(2100)
-  year?: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(12)
-  month?: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(31)
-  day?: number;
-}
-
 /**
  * DTO for creating a new character
  */
@@ -116,9 +67,8 @@ export class CreateCharacterDto {
   name?: CharacterNameDto;
 
   @IsOptional()
-  @ValidateNested()
-  @Type(() => CharacterImageDto)
-  image?: CharacterImageDto;
+  @IsString()
+  imageId?: string;
 
   @IsOptional()
   @IsString()
@@ -131,9 +81,8 @@ export class CreateCharacterDto {
   gender?: string;
 
   @IsOptional()
-  @ValidateNested()
-  @Type(() => FuzzyDateDto)
-  dateOfBirth?: FuzzyDateDto;
+  @IsDate()
+  dateOfBirth?: Date;
 
   @IsOptional()
   @IsString()
@@ -157,7 +106,7 @@ export class CreateCharacterDto {
   @IsOptional()
   @IsString()
   @MaxLength(CHARACTER_CONSTANTS.MOD_NOTES_MAX_LENGTH)
-  modNotes?: string;
+  notes?: string;
 
   @IsOptional()
   @IsObject()

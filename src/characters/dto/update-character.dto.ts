@@ -1,82 +1,27 @@
-import { Type } from 'class-transformer';
-import {
-  IsString,
-  IsOptional,
-  IsBoolean,
-  IsInt,
-  IsObject,
-  IsArray,
-  ValidateNested,
-  MaxLength,
-  Min,
-  Max,
-} from 'class-validator';
-import { CHARACTER_CONSTANTS } from 'src/shared/constants';
-import {
-  CharacterNameDto,
-  CharacterImageDto,
-  FuzzyDateDto,
-} from './create-character.dto';
+import { IntersectionType, OmitType, PartialType } from '@nestjs/mapped-types';
+import { CreateCharacterDto } from './create-character.dto';
+
+/**
+ * Additional fields for UpdateCharacterDto that differ from CreateCharacterDto
+ */
+class UpdateCharacterFieldsDto {}
 
 /**
  * DTO for updating an existing character
- * All fields are optional
+ * Extends CreateCharacterDto with all fields optional, plus additional update-specific fields
+ * Note: Uses OmitType to exclude imageId and dateOfBirth from CreateCharacterDto
+ * since UpdateCharacterDto may handle these differently (e.g., with nested DTOs)
  */
-export class UpdateCharacterDto {
-  @IsOptional()
-  @ValidateNested()
-  @Type(() => CharacterNameDto)
-  name?: CharacterNameDto;
-
-  @IsOptional()
-  @ValidateNested()
-  @Type(() => CharacterImageDto)
-  image?: CharacterImageDto;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(CHARACTER_CONSTANTS.DESCRIPTION_MAX_LENGTH)
-  description?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(CHARACTER_CONSTANTS.GENDER_MAX_LENGTH)
-  gender?: string;
-
-  @IsOptional()
-  @ValidateNested()
-  @Type(() => FuzzyDateDto)
-  dateOfBirth?: FuzzyDateDto;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(CHARACTER_CONSTANTS.AGE_MAX_LENGTH)
-  age?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(CHARACTER_CONSTANTS.BLOOD_TYPE_MAX_LENGTH)
-  bloodType?: string;
-
-  @IsOptional()
-  @IsBoolean()
-  isFavouriteBlocked?: boolean;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(CHARACTER_CONSTANTS.SITE_URL_MAX_LENGTH)
-  siteUrl?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(CHARACTER_CONSTANTS.MOD_NOTES_MAX_LENGTH)
-  modNotes?: string;
-
-  @IsOptional()
-  @IsString()
-  status?: string;
-
-  @IsOptional()
-  @IsObject()
-  metadata?: Record<string, unknown>;
+export class UpdateCharacterDto extends IntersectionType(
+  PartialType(
+    OmitType(CreateCharacterDto, ['imageId', 'dateOfBirth'] as const),
+  ),
+  UpdateCharacterFieldsDto,
+) {
+  // Override imageId to support nested image DTO if needed
+  // If you need to support CharacterImageDto, you can add it here
+  // For now, keeping it simple by omitting from base and allowing direct assignment
+  // Override dateOfBirth to support FuzzyDateDto if needed
+  // If you need to support FuzzyDateDto, you can add it here
+  // For now, keeping it simple by omitting from base and allowing direct assignment
 }
