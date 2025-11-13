@@ -185,28 +185,22 @@ export class MediaService extends BaseService<Media> {
     }
 
     // Upload file to R2 (scrambled buffer if scrambling was applied)
+    const metadata = {
+      originalName: file.originalname,
+      mediaType: mediaType,
+      uploadedBy: userId,
+      scrambled: imageScramblerMetadata ? 'true' : 'false',
+      scrambleVersion: imageScramblerMetadata
+        ? String(imageScramblerMetadata.version)
+        : '1',
+    };
+    this.logger.log('metadata', metadata);
     const uploadResult = await this.r2Service.uploadFile(uploadBuffer, {
       folder: this.configService.get('r2.folders.media'),
       filename: fileName,
       contentType: file.mimetype,
-      metadata: {
-        originalName: file.originalname,
-        mediaType: mediaType,
-        uploadedBy: userId,
-        scrambled: imageScramblerMetadata ? 'true' : 'false',
-        scrambleVersion: imageScramblerMetadata
-          ? String(imageScramblerMetadata.version)
-          : '1',
-      },
+      metadata,
     });
-
-    // Build metadata JSON string if scrambler was applied
-    let metadataJson: string | undefined;
-    if (imageScramblerMetadata) {
-      metadataJson = JSON.stringify({
-        imageScrambler: imageScramblerMetadata,
-      });
-    }
 
     // Return CreateMediaDto for BaseService to handle
     return {
@@ -226,7 +220,7 @@ export class MediaService extends BaseService<Media> {
       userId: userId,
       width,
       height,
-      metadata: metadataJson,
+      metadata: JSON.stringify(metadata),
     } as CreateMediaDto;
   }
 
@@ -600,9 +594,11 @@ export class MediaService extends BaseService<Media> {
       );
     }
 
-    let parsed: any;
+    let parsed: { imageScrambler?: ImageScrambleMetadata };
     try {
-      parsed = JSON.parse(media.metadata);
+      parsed = JSON.parse(media.metadata) as {
+        imageScrambler?: ImageScrambleMetadata;
+      };
     } catch (error) {
       this.logger.error('Failed to parse media.metadata JSON:', error);
       throw new HttpException(
