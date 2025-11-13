@@ -232,7 +232,7 @@ export class Series extends BaseEntityCustom {
     cascade: false, // Don't cascade delete genre relationships when series is deleted
     eager: false, // Don't load genres by default for performance
   })
-  genreRoles?: SeriesGenre[];
+  genres?: SeriesGenre[];
 
   /**
    * Alternative titles of the media

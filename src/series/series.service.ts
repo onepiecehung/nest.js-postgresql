@@ -9,7 +9,6 @@ import { ReactionsService } from 'src/reactions/reactions.service';
 import { CacheService } from 'src/shared/services';
 import { DeepPartial, Repository } from 'typeorm';
 import { Series } from './entities/series.entity';
-import { CreateSeriesDto, UpdateSeriesDto } from './dto';
 
 @Injectable()
 export class SeriesService extends BaseService<Series> {
@@ -26,22 +25,27 @@ export class SeriesService extends BaseService<Series> {
         cache: { enabled: true, ttlSec: 60, prefix: 'series', swrSec: 30 },
         defaultSearchField: 'description',
         relationsWhitelist: {
+          genres: {
+            genre: true,
+          },
           authorRoles: {
             author: true,
           },
-          characterRoles: {
-            character: true,
-          },
+          characters: true,
           staffRoles: {
             staff: true,
           },
           studioRoles: {
             studio: true,
           },
+          tags: true,
+          coverImage: true,
+          bannerImage: true,
         },
         selectWhitelist: {
           id: true,
-          idMal: true,
+          myAnimeListId: true,
+          aniListId: true,
           title: true,
           type: true,
           format: true,
@@ -59,64 +63,96 @@ export class SeriesService extends BaseService<Series> {
           countryOfOrigin: true,
           isLicensed: true,
           source: true,
-          hashtag: true,
-          trailer: true,
-          coverImage: true,
-          bannerImage: true,
-          genres: true,
+          coverImage: {
+            id: true,
+            url: true,
+            type: true,
+          },
+          bannerImage: {
+            id: true,
+            url: true,
+            type: true,
+          },
           synonyms: true,
           averageScore: true,
           meanScore: true,
           popularity: true,
           isLocked: true,
           trending: true,
-          isAdult: true,
-          siteUrl: true,
+          isNsfw: true,
           autoCreateForumThread: true,
           isRecommendationBlocked: true,
           isReviewBlocked: true,
-          seriesStatus: true,
+          notes: true,
+          releasingStatus: true,
+          externalLinks: true,
+          streamingEpisodes: true,
+          metadata: true,
           createdAt: true,
           updatedAt: true,
+          genres: {
+            id: true,
+            sortOrder: true,
+            isPrimary: true,
+            notes: true,
+            genre: {
+              id: true,
+              slug: true,
+              name: true,
+              icon: true,
+              color: true,
+            },
+          },
           authorRoles: {
             id: true,
             role: true,
-            roleNotes: true,
+            notes: true,
             isMain: true,
+            sortOrder: true,
             author: {
               id: true,
               name: true,
             },
           },
-          characterRoles: {
+          characters: {
             id: true,
-            role: true,
-            roleNotes: true,
-            character: {
+            name: true,
+            image: {
               id: true,
-              name: true,
-              image: true,
+              url: true,
             },
           },
           staffRoles: {
             id: true,
             role: true,
-            roleNotes: true,
+            notes: true,
+            isMain: true,
+            sortOrder: true,
             staff: {
               id: true,
               name: true,
-              image: true,
+              image: {
+                id: true,
+                url: true,
+              },
             },
           },
           studioRoles: {
             id: true,
-            isMain: true,
+            role: true,
             roleNotes: true,
+            isMain: true,
+            sortOrder: true,
             studio: {
               id: true,
               name: true,
-              isAnimationStudio: true,
+              type: true,
             },
+          },
+          tags: {
+            id: true,
+            name: true,
+            slug: true,
           },
         },
       },
@@ -128,7 +164,7 @@ export class SeriesService extends BaseService<Series> {
    * Define which fields can be searched
    */
   protected getSearchableColumns(): (keyof Series)[] {
-    return ['description', 'hashtag'];
+    return ['description'];
   }
 
   /**
@@ -153,9 +189,9 @@ export class SeriesService extends BaseService<Series> {
       data.isLocked = false;
     }
 
-    // Ensure isAdult defaults to false
-    if (data.isAdult === undefined) {
-      data.isAdult = false;
+    // Ensure isNsfw defaults to false
+    if (data.isNsfw === undefined) {
+      data.isNsfw = false;
     }
 
     return data;
