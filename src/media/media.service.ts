@@ -643,23 +643,9 @@ export class MediaService extends BaseService<Media> {
       hkdfSync('sha256', masterKey, salt, contextString, 32),
     );
 
-    // Calculate time window for rotation if enabled
-    // If rotationDurationSeconds > 0, seed will change every N seconds
-    // This allows time-based seed rotation for enhanced security
-    let timeWindow = '';
-    const rotationDuration = scramblerConfig.rotationDurationSeconds ?? 0;
-    if (rotationDuration > 0) {
-      const now = Math.floor(Date.now() / 1000); // Current time in seconds
-      const windowIndex = Math.floor(now / rotationDuration);
-      timeWindow = `:window:${windowIndex}`;
-    }
-
-    // Generate permutation seed with optional time window
-    // If rotation is enabled, seed changes every rotationDurationSeconds
-    // If rotation is disabled (0), seed remains constant for the same image
     const permSeed = createHmac('sha256', imageKey)
-      .update(`perm-seed${timeWindow}`)
-      .digest('base64url'); // FE will use this
+      .update('perm-seed')
+      .digest('base64url');
 
     return {
       permutationSeed: permSeed,
