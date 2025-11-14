@@ -31,33 +31,4 @@ protected getSearchableColumns(): (keyof Article)[] {
   return ['title', 'summary', 'content'];
 }
 
-// BaseService automatically validates fields against this whitelist@rule condition_builder_usage
-- Build filters via ConditionBuilder; forbid raw string concatenation.
-- Prefer ILIKE for keyword search when caseSensitive=0; validate requested fields against getSearchableColumns().
-- Use proper TypeORM operators: Between, MoreThanOrEqual, LessThanOrEqual, In, Not, IsNull.
-- Support date range filtering with fromDate/toDate parameters.
-- Handle status filtering with proper enum values.
-
-@example
-const where = ConditionBuilder.build(
-  { 
-    query: q.keyword, 
-    fields: q.fields, 
-    caseSensitive: 0, 
-    fromDate: q.from, 
-    toDate: q.to,
-    status: q.status,
-    userId: q.userId 
-  },
-  'title',
-  { is_active: true }
-);
-return this.repo.findAndCount({ where });
-
-@example search_validation
-// In service:
-protected getSearchableColumns(): (keyof Article)[] {
-  return ['title', 'summary', 'content'];
-}
-
 // BaseService automatically validates fields against this whitelist

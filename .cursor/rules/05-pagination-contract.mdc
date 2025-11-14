@@ -28,30 +28,4 @@ const nextCursor = encodeSignedCursor({
 });
 
 // BAD: Don't use unsigned cursors
-const nextCursor = encodeCursor({ key: sortBy, value: lastRecord[sortBy] });@rule cursor_contract
-INPUT: { limit: number(1..100), cursor?: string, sortBy?: keyof T, order?: 'ASC'|'DESC' }
-OUTPUT: { result: T[], metaData: { nextCursor?: string, prevCursor?: string, take: number, sortBy: string, order: 'ASC'|'DESC' } }
-- Use encodeSignedCursor/decodeSignedCursor only for security.
-- Never expose numeric offsets to clients.
-- Support stable ordering with (sortBy, id) tuple for consistent pagination.
-- Use PaginationFormatter.cursor() for consistent response format.
-
-@example
-const result = await this.listCursor({ 
-  limit: q.limit, 
-  cursor: q.cursor, 
-  sortBy: 'createdAt', 
-  order: 'DESC' 
-});
-return result; // Already formatted by BaseService
-
-@example signed_cursor
-// GOOD: Use signed cursors
-const nextCursor = encodeSignedCursor({
-  key: sortBy,
-  order: direction,
-  value: { [sortBy]: lastRecord[sortBy], id: lastRecord.id }
-});
-
-// BAD: Don't use unsigned cursors
 const nextCursor = encodeCursor({ key: sortBy, value: lastRecord[sortBy] });

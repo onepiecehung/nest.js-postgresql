@@ -23,25 +23,4 @@ export class ArticlesService extends BaseService<Article> {
     }, cache);
   }
   protected getSearchableColumns(): (keyof Article)[] { return ['title','summary','content']; }
-}@rule service_scaffold
-Generate a service that EXTENDS BaseService<T> with:
-- options: { entityName, cache {enabled, ttlSec, prefix, swrSec}, defaultSearchField, relationsWhitelist, selectWhitelist }
-- methods: listOffset(q), listCursor(q), create(dto), update(id, dto), remove(id), softDelete(id), etc.
-- hooks: beforeCreate, afterCreate, beforeUpdate, afterUpdate, beforeDelete, afterDelete (empty by default)
-- batch operations: createMany, updateMany, removeMany, softDeleteMany
-- transaction support: runInTransaction
-
-@example
-@Injectable()
-export class ArticlesService extends BaseService<Article> {
-  constructor(@InjectRepository(Article) repo: Repository<Article>, cache: CacheService) {
-    super(new TypeOrmBaseRepository<Article>(repo), {
-      entityName: 'Article',
-      cache: { enabled: true, ttlSec: 60, swrSec: 30, prefix: 'articles' },
-      defaultSearchField: 'title',
-      relationsWhitelist: { user: { avatar: true }, tags: true },
-      selectWhitelist: { id: true, title: true, user: { id: true, username: true } },
-    }, cache);
-  }
-  protected getSearchableColumns(): (keyof Article)[] { return ['title','summary','content']; }
 }
