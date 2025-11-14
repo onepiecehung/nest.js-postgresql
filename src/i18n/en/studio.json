@@ -1,0 +1,8 @@
+{
+  "STUDIO_NOT_FOUND": "Studio not found",
+  "STUDIO_CREATED": "Studio created successfully",
+  "STUDIO_UPDATED": "Studio updated successfully",
+  "STUDIO_DELETED": "Studio deleted successfully",
+  "INVALID_SEARCH_FIELDS": "Invalid search fields provided",
+  "STUDIO_ALREADY_EXISTS": "Studio already exists"
+}

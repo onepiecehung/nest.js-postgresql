@@ -1,18 +1,24 @@
-import { Injectable, HttpException, HttpStatus, Logger } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { InjectRepository } from '@nestjs/typeorm';
+import { createHmac, hkdfSync } from 'crypto';
 import { Readable } from 'stream';
+import { Repository } from 'typeorm';
 
 import { AdvancedPaginationDto } from 'src/common/dto';
 import { IPagination, IPaginationCursor } from 'src/common/interface';
 import { TypeOrmBaseRepository } from 'src/common/repositories/typeorm.base-repo';
 import { BaseService } from 'src/common/services';
-import { CacheService, R2Service } from 'src/shared/services';
 import { MEDIA_CONSTANTS, MediaStatus, MediaType } from 'src/shared/constants';
+import { CacheService, R2Service } from 'src/shared/services';
 
+import { CreateMediaDto, MediaQueryDto, UpdateMediaDto } from './dto';
 import { Media } from './entities/media.entity';
-import { CreateMediaDto, UpdateMediaDto, MediaQueryDto } from './dto';
+import {
+  ImageScrambleMetadata,
+  ImageScramblerConfig,
+  ImageScramblerService,
+} from './image-scrambler.service';
 
 @Injectable()
 export class MediaService extends BaseService<Media> {
@@ -24,6 +30,7 @@ export class MediaService extends BaseService<Media> {
     private readonly configService: ConfigService,
     private readonly r2Service: R2Service,
     cacheService: CacheService,
+    private readonly imageScramblerService: ImageScramblerService,
   ) {
     super(
       new TypeOrmBaseRepository<Media>(mediaRepository),
@@ -53,6 +60,7 @@ export class MediaService extends BaseService<Media> {
           duration: true,
           downloadCount: true,
           viewCount: true,
+          metadata: true,
           user: {
             id: true,
             name: true,
@@ -148,17 +156,52 @@ export class MediaService extends BaseService<Media> {
     const extension = file.originalname.split('.').pop();
     const fileName = `${Date.now()}_${Math.round(Math.random() * 1e9)}.${extension}`;
 
-    // Upload file to R2
-    const uploadResult = await this.r2Service.uploadFile(file.buffer, {
+    // Check if scrambler applies (only for images)
+    const isImage = mediaType === MEDIA_CONSTANTS.TYPES.IMAGE;
+    let uploadBuffer = file.buffer;
+    let width: number | undefined;
+    let height: number | undefined;
+    let imageScramblerMetadata: ImageScrambleMetadata | undefined;
+
+    try {
+      const scrambleResult = isImage
+        ? await this.imageScramblerService.scrambleIfNeeded(
+            file.buffer,
+            file.mimetype,
+          )
+        : null;
+      if (scrambleResult) {
+        uploadBuffer = scrambleResult.buffer;
+        width = scrambleResult.width;
+        height = scrambleResult.height;
+        imageScramblerMetadata = scrambleResult.metadata;
+      }
+    } catch (error) {
+      this.logger.error(
+        `Failed to scramble image ${file.originalname}:`,
+        error,
+      );
+      // Fallback to original buffer but keep logging
+    }
+
+    // Upload file to R2 (scrambled buffer if scrambling was applied)
+    const metadata = {
+      originalName: file.originalname,
+      mediaType: mediaType,
+      uploadedBy: userId,
+      scrambled: imageScramblerMetadata ? 'true' : 'false',
+      scrambleVersion: imageScramblerMetadata
+        ? String(imageScramblerMetadata.version)
+        : '1',
+    };
+    this.logger.log('metadata', metadata);
+    const uploadResult = await this.r2Service.uploadFile(uploadBuffer, {
       folder: this.configService.get('r2.folders.media'),
       filename: fileName,
       contentType: file.mimetype,
-      metadata: {
-        originalName: file.originalname,
-        mediaType: mediaType,
-        uploadedBy: userId,
-      },
+      metadata,
     });
+    Object.assign(metadata, { ...imageScramblerMetadata });
 
     // Return CreateMediaDto for BaseService to handle
     return {
@@ -176,6 +219,9 @@ export class MediaService extends BaseService<Media> {
       key: uploadResult.key,
       storageProvider: 'r2',
       userId: userId,
+      width,
+      height,
+      metadata: JSON.stringify(metadata),
     } as CreateMediaDto;
   }
 
@@ -507,5 +553,105 @@ export class MediaService extends BaseService<Media> {
 
     // Then soft delete from database
     await this.update(id, { status: 'deleted' as MediaStatus });
+  }
+
+  /**
+   * Get scramble key (permutation seed) and tile config for unscrambling
+   * @param id Media ID
+   * @returns Permutation seed and tile configuration
+   */
+  async getScrambleKey(id: string): Promise<{
+    permutationSeed: string;
+    tileRows: number;
+    tileCols: number;
+    version: number;
+  }> {
+    const media = await this.findById(id);
+    if (!media) {
+      throw new HttpException(
+        {
+          messageKey: 'media.MEDIA_NOT_FOUND',
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+    // Only make sense for image type
+    if (media.type !== MEDIA_CONSTANTS.TYPES.IMAGE) {
+      throw new HttpException(
+        {
+          messageKey: 'media.MEDIA_NOT_IMAGE',
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    if (!media.metadata) {
+      throw new HttpException(
+        {
+          messageKey: 'media.SCRAMBLER_METADATA_MISSING',
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    let parsed: ImageScrambleMetadata | undefined;
+    try {
+      parsed = JSON.parse(media.metadata) as ImageScrambleMetadata;
+    } catch (error) {
+      this.logger.error('Failed to parse media.metadata JSON:', error);
+      throw new HttpException(
+        {
+          messageKey: 'media.SCRAMBLER_METADATA_INVALID',
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+
+    const scramblerMeta = parsed;
+    if (
+      !scramblerMeta ||
+      !scramblerMeta.enabled ||
+      !scramblerMeta.salt ||
+      !scramblerMeta.tileRows ||
+      !scramblerMeta.tileCols
+    ) {
+      throw new HttpException(
+        {
+          messageKey: 'media.SCRAMBLER_NOT_ENABLED',
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    const salt = Buffer.from(scramblerMeta.salt, 'base64');
+    const scramblerConfig =
+      this.configService.get<ImageScramblerConfig>('app.imageScrambler');
+
+    if (!scramblerConfig?.enabled) {
+      throw new HttpException(
+        {
+          messageKey: 'media.SCRAMBLER_DISABLED',
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    const masterKey = Buffer.from(scramblerConfig.masterKey, 'utf-8');
+    // Use context string from config (must match the one used during scrambling)
+    const contextString = scramblerConfig.contextString;
+    const imageKey = Buffer.from(
+      hkdfSync('sha256', masterKey, salt, contextString, 32),
+    );
+
+    const permSeed = createHmac('sha256', imageKey)
+      .update('perm-seed')
+      .digest('base64url');
+
+    return {
+      permutationSeed: permSeed,
+      tileRows: scramblerMeta.tileRows,
+      tileCols: scramblerMeta.tileCols,
+      version: scramblerMeta.version ?? scramblerConfig.version,
+    };
   }
 }

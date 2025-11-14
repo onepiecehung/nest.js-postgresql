@@ -26,28 +26,4 @@ async createCommentWithMedia(dto: CreateCommentDto): Promise<Comment> {
     await this.processMedia(comment.id, dto.media, queryRunner);
     return comment;
   });
-}@rule refactor_contracts
-- Do not change public method signatures in service/controller without adding an adapter layer.
-- When renaming columns/props in entities, ADD a temporary mapping layer in the service and mark TODO for maintainers.
-- Preserve relation/select whitelists; if expanded, ensure no secret fields are exposed; add unit test stubs.
-- Maintain backward compatibility for API responses and DTOs.
-- Use transaction support for complex operations that span multiple entities.
-
-@example adapter_layer
-// OLD
-findById(id: string): Promise<Article>
-
-// NEW (internals changed), keep external signature:
-findById(id: string): Promise<Article> {
-  return this.repo.findOneById(id); // updated internal call
-}
-
-@example transaction_support
-// GOOD: Use transaction for complex operations
-async createCommentWithMedia(dto: CreateCommentDto): Promise<Comment> {
-  return await this.runInTransaction(async (queryRunner) => {
-    const comment = await this.create(dto, { queryRunner });
-    await this.processMedia(comment.id, dto.media, queryRunner);
-    return comment;
-  });
 }

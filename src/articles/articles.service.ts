@@ -5,6 +5,7 @@ import { BaseService } from 'src/common/services';
 import { createArticleSlug } from 'src/common/utils/slug.util';
 import { ARTICLE_CONSTANTS } from 'src/shared/constants';
 import { CacheService } from 'src/shared/services';
+import { User } from 'src/users/entities/user.entity';
 import {
   DeepPartial,
   FindOptionsRelations,
@@ -24,7 +25,6 @@ import {
 import { UpdateArticleDto } from './dto/update-article.dto';
 import { Article } from './entities/article.entity';
 import { ScheduledPublishingService } from './services/scheduled-publishing.service';
-import { User } from 'src/users/entities/user.entity';
 
 import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -39,6 +39,8 @@ export class ArticlesService extends BaseService<Article> {
   };
   protected readonly relationsWhitelist: FindOptionsRelations<Article> = {
     user: { avatar: true },
+    coverImage: true,
+    authors: { avatar: true },
   };
   constructor(
     @InjectRepository(Article)

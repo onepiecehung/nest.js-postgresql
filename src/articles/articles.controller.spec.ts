@@ -1,8 +1,11 @@
 import { Reflector } from '@nestjs/core';
+import { ConfigService } from '@nestjs/config';
+import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { AnalyticsService } from 'src/analytics/analytics.service';
 import { JwtAccessTokenGuard } from 'src/auth/guard/jwt-access-token.guard';
+import { OptionalAuthGuard } from 'src/auth/guard/optional-auth.guard';
 import { PermissionsGuard } from 'src/auth/guard/permissions.guard';
 import { UserPermissionService } from 'src/permissions/services/user-permission.service';
 import { CacheService } from 'src/shared/services';
@@ -105,11 +108,36 @@ describe('ArticlesController', () => {
             clearUserPermissions: jest.fn(),
           },
         },
+        {
+          provide: JwtService,
+          useValue: {
+            sign: jest.fn(),
+            signAsync: jest.fn(),
+            verify: jest.fn(),
+            verifyAsync: jest.fn(),
+            decode: jest.fn(),
+          },
+        },
+        {
+          provide: ConfigService,
+          useValue: {
+            get: jest.fn((key: string) => {
+              if (key === 'app.jwt.secret') {
+                return 'test-secret';
+              }
+              return undefined;
+            }),
+          },
+        },
       ],
     });
 
     const module: TestingModule = await moduleBuilder
       .overrideGuard(JwtAccessTokenGuard)
+      .useValue({
+        canActivate: jest.fn().mockResolvedValue(true),
+      })
+      .overrideGuard(OptionalAuthGuard)
       .useValue({
         canActivate: jest.fn().mockResolvedValue(true),
       })

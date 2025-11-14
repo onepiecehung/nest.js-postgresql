@@ -42,6 +42,7 @@ export class ArticlesController {
   }
 
   @Get()
+  @Auth(undefined, true)
   @TrackEvent(
     ANALYTICS_CONSTANTS.EVENT_TYPES.ARTICLE_LIST,
     ANALYTICS_CONSTANTS.EVENT_CATEGORIES.CONTENT,
@@ -51,7 +52,22 @@ export class ArticlesController {
     return this.articlesService.findAll(query);
   }
 
+  @Get('my')
+  @Auth()
+  @TrackEvent(
+    ANALYTICS_CONSTANTS.EVENT_TYPES.ARTICLE_LIST,
+    ANALYTICS_CONSTANTS.EVENT_CATEGORIES.CONTENT,
+    ANALYTICS_CONSTANTS.SUBJECT_TYPES.ARTICLE,
+  )
+  myArticles(
+    @Query() query: GetArticleDto,
+    @Request() req: Request & { user: AuthPayload },
+  ) {
+    return this.articlesService.findAll({ ...query, userId: req.user.uid });
+  }
+
   @Get('cursor')
+  @Auth(undefined, true)
   @TrackEvent(
     ANALYTICS_CONSTANTS.EVENT_TYPES.ARTICLE_LIST_CURSOR,
     ANALYTICS_CONSTANTS.EVENT_CATEGORIES.CONTENT,
@@ -62,6 +78,7 @@ export class ArticlesController {
   }
 
   @Get(':id')
+  @Auth(undefined, true)
   @TrackEvent(
     ANALYTICS_CONSTANTS.EVENT_TYPES.ARTICLE_VIEW,
     ANALYTICS_CONSTANTS.EVENT_CATEGORIES.CONTENT,
@@ -72,6 +89,7 @@ export class ArticlesController {
   }
 
   @Patch(':id')
+  @Auth()
   @TrackEvent(
     ANALYTICS_CONSTANTS.EVENT_TYPES.ARTICLE_UPDATE,
     ANALYTICS_CONSTANTS.EVENT_CATEGORIES.CONTENT,
@@ -81,7 +99,6 @@ export class ArticlesController {
     all: ['ARTICLE_EDIT'],
     any: ['ARTICLE_MANAGE_ALL'], // Admin có thể edit tất cả bài viết
   })
-  @Auth()
   update(
     @Param('id', new SnowflakeIdPipe()) id: string,
     @Body() updateArticleDto: UpdateArticleDto,
@@ -90,6 +107,7 @@ export class ArticlesController {
   }
 
   @Patch(':id/publish')
+  @Auth()
   @TrackEvent(
     ANALYTICS_CONSTANTS.EVENT_TYPES.ARTICLE_UPDATE,
     ANALYTICS_CONSTANTS.EVENT_CATEGORIES.CONTENT,
@@ -99,7 +117,6 @@ export class ArticlesController {
     all: ['ARTICLE_PUBLISH'],
     any: ['ARTICLE_MANAGE_ALL'], // Admin có thể publish tất cả bài viết
   })
-  @Auth()
   publish(@Param('id', new SnowflakeIdPipe()) id: string) {
     return this.articlesService.updateArticle(id, { status: 'published' });
   }

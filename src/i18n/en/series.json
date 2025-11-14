@@ -1,0 +1,8 @@
+{
+  "SERIES_NOT_FOUND": "Series not found",
+  "SERIES_CREATED": "Series created successfully",
+  "SERIES_UPDATED": "Series updated successfully",
+  "SERIES_DELETED": "Series deleted successfully",
+  "INVALID_SEARCH_FIELDS": "Invalid search fields provided",
+  "SERIES_ALREADY_EXISTS": "Series already exists"
+}

@@ -1,0 +1,10 @@
+{
+  "CHARACTER_NOT_FOUND": "Không tìm thấy nhân vật",
+  "CHARACTER_CREATED": "Tạo nhân vật thành công",
+  "CHARACTER_UPDATED": "Cập nhật nhân vật thành công",
+  "CHARACTER_DELETED": "Xóa nhân vật thành công",
+  "FAVOURITE_INCREMENTED": "Đã tăng số lượt yêu thích",
+  "FAVOURITE_DECREMENTED": "Đã giảm số lượt yêu thích",
+  "INVALID_SEARCH_FIELDS": "Các trường tìm kiếm không hợp lệ",
+  "CHARACTER_ALREADY_EXISTS": "Nhân vật đã tồn tại"
+}

@@ -1,0 +1,9 @@
+{
+  "AUTHOR_NOT_FOUND": "Author not found",
+  "AUTHOR_CREATED": "Author created successfully",
+  "AUTHOR_UPDATED": "Author updated successfully",
+  "AUTHOR_DELETED": "Author deleted successfully",
+  "SERIES_LINKED": "Series linked successfully",
+  "INVALID_SEARCH_FIELDS": "Invalid search fields provided",
+  "AUTHOR_ALREADY_EXISTS": "Author already exists"
+}

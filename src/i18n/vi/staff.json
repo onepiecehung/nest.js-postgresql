@@ -1,0 +1,9 @@
+{
+  "STAFF_NOT_FOUND": "Không tìm thấy nhân viên",
+  "STAFF_CREATED": "Tạo nhân viên thành công",
+  "STAFF_UPDATED": "Cập nhật nhân viên thành công",
+  "STAFF_DELETED": "Xóa nhân viên thành công",
+  "CHARACTERS_LINKED": "Liên kết nhân vật thành công",
+  "INVALID_SEARCH_FIELDS": "Các trường tìm kiếm không hợp lệ",
+  "STAFF_ALREADY_EXISTS": "Nhân viên đã tồn tại"
+}

@@ -26,28 +26,4 @@ A domain module includes ONLY:
   providers: [ArticlesService, ScheduledPublishingService],
   exports: [ArticlesService],
 })
-export class ArticlesModule {}@rule module_contract
-A domain module includes ONLY:
-- *.module.ts: wire controller/service/repo via TypeOrmModule.forFeature([Entity]).
-- *.controller.ts: DTO validation and thin delegations to service methods.
-- *.service.ts: extends BaseService<T>, defines getSearchableColumns(), hooks, cache prefix, relations/select whitelists.
-- *.repository.ts: extends TypeOrmBaseRepository<T> when custom queries are needed.
-- entities/*.entity.ts: extends BaseEntityCustom with explicit table name and proper indexes.
-- dto/*.dto.ts: validation DTOs with class-validator decorators.
-- services/*.service.ts: additional specialized services if needed.
-
-@anti-patterns
-- Direct DB access from controller.
-- process.env usage inside feature modules (use centralized config services).
-- Business logic in controllers (move to services).
-- Raw SQL queries without proper parameterization.
-- Missing input validation on DTOs.
-
-@example module_structure
-@Module({
-  imports: [TypeOrmModule.forFeature([Article])],
-  controllers: [ArticlesController],
-  providers: [ArticlesService, ScheduledPublishingService],
-  exports: [ArticlesService],
-})
 export class ArticlesModule {}

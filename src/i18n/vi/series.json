@@ -1,0 +1,8 @@
+{
+  "SERIES_NOT_FOUND": "Không tìm thấy series",
+  "SERIES_CREATED": "Tạo series thành công",
+  "SERIES_UPDATED": "Cập nhật series thành công",
+  "SERIES_DELETED": "Xóa series thành công",
+  "INVALID_SEARCH_FIELDS": "Các trường tìm kiếm không hợp lệ",
+  "SERIES_ALREADY_EXISTS": "Series đã tồn tại"
+}

@@ -149,4 +149,12 @@ export class CreateMediaDto {
   @IsOptional()
   @IsNumber()
   viewCount?: number;
+
+  @ApiPropertyOptional({
+    description: 'Additional metadata as JSON string',
+    example: '{"imageScrambler":{"enabled":true,"version":1}}',
+  })
+  @IsOptional()
+  @IsString()
+  metadata?: string;
 }

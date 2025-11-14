@@ -1,6 +1,7 @@
 import { instanceToPlain } from 'class-transformer';
 import { Column, Entity, Index, JoinColumn, ManyToOne } from 'typeorm';
 
+import { Segments } from 'src/series/entities/segments.entity';
 import { MEDIA_CONSTANTS, MediaStatus, MediaType } from 'src/shared/constants';
 import { BaseEntityCustom } from 'src/shared/entities/base.entity';
 import { User } from 'src/users/entities/user.entity';
@@ -128,6 +129,19 @@ export class Media extends BaseEntityCustom {
 
   @Column('text', { nullable: true })
   tags: string; // JSON array of tags
+
+  /**
+   * The ID of the segment that the media belongs to
+   */
+  @Column({ type: 'bigint', nullable: true })
+  segmentId: string;
+
+  /**
+   * The segment that the media belongs to
+   */
+  @ManyToOne(() => Segments, { nullable: true })
+  @JoinColumn({ name: 'segmentId', referencedColumnName: 'id' })
+  segment?: Segments;
 
   /**
    * Convert entity to JSON with sensitive fields removed

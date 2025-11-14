@@ -1,0 +1,10 @@
+{
+  "CHARACTER_NOT_FOUND": "Character not found",
+  "CHARACTER_CREATED": "Character created successfully",
+  "CHARACTER_UPDATED": "Character updated successfully",
+  "CHARACTER_DELETED": "Character deleted successfully",
+  "FAVOURITE_INCREMENTED": "Favourite count incremented",
+  "FAVOURITE_DECREMENTED": "Favourite count decremented",
+  "INVALID_SEARCH_FIELDS": "Invalid search fields provided",
+  "CHARACTER_ALREADY_EXISTS": "Character already exists"
+}

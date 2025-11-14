@@ -28,30 +28,4 @@ if (cached) return cached;
 
 const stats = await this.calculateStats(userId);
 await this.cacheService?.set(cacheKey, stats, 300); // 5 min TTL
-return stats;@rule cache_keys
-- Key shapes:
-  - `${prefix}:id:${id}` for single entity caching
-  - `${prefix}:list:${sha256Hex(stableStringify(filters))}` for list caching
-  - `${prefix}:stats:${identifier}` for statistics caching
-- SWR: enable when ttlSec>0 and swrSec>0 for background refresh.
-- Invalidate both id-based and list-based keys in afterCreate/afterUpdate/afterDelete.
-- Use CacheService.deleteKeysByPattern() for efficient bulk invalidation.
-- Cache statistics and aggregated data with appropriate TTL.
-
-@example
-// Cache invalidation in lifecycle hooks
-protected async afterCreate(entity: Article): Promise<void> {
-  await this.invalidateCacheForEntity(entity.id);
-  await this.cacheService?.deleteKeysByPattern('articles:list:*');
-  await this.cacheService?.deleteKeysByPattern('articles:stats:*');
-}
-
-@example cache_patterns
-// Statistics caching
-const cacheKey = `articles:stats:${userId}`;
-const cached = await this.cacheService?.get(cacheKey);
-if (cached) return cached;
-
-const stats = await this.calculateStats(userId);
-await this.cacheService?.set(cacheKey, stats, 300); // 5 min TTL
 return stats;
