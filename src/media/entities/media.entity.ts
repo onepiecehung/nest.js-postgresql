@@ -154,7 +154,7 @@ export class Media extends BaseEntityCustom {
     delete result.path;
     delete result.originalName;
     delete result.userId;
-    // delete result.metadata;
+    delete result.metadata;
     return result;
   }
 

@@ -566,7 +566,7 @@ export class MediaService extends BaseService<Media> {
     tileCols: number;
     version: number;
   }> {
-    const media = await this.findById(id);
+    const media = await this.findOne({ id });
     if (!media) {
       throw new HttpException(
         {
@@ -638,8 +638,7 @@ export class MediaService extends BaseService<Media> {
 
     const masterKey = Buffer.from(scramblerConfig.masterKey, 'utf-8');
     // Use context string from config (must match the one used during scrambling)
-    const contextString =
-      scramblerConfig.contextString || 'jai-image-scramble-v1';
+    const contextString = scramblerConfig.contextString;
     const imageKey = Buffer.from(
       hkdfSync('sha256', masterKey, salt, contextString, 32),
     );

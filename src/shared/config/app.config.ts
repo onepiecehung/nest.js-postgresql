@@ -27,11 +27,12 @@ export const appConfig = () => ({
       process.env.IMAGE_SCRAMBLER_MASTER_KEY ||
       'dev_image_scrambler_master_key',
     tileRows: Number(process.env.IMAGE_SCRAMBLER_TILE_ROWS) || 24,
-    tileCols: Number(process.env.IMAGE_SCRAMBLER_TILE_COLS) || 12,
+    tileCols: Number(process.env.IMAGE_SCRAMBLER_TILE_COLS) || 13,
     version: 1,
     // HKDF context string for key derivation (must be same for scramble and unscramble)
     contextString:
-      process.env.IMAGE_SCRAMBLER_CONTEXT_STRING || 'jai-image-scramble-v1',
+      process.env.IMAGE_SCRAMBLER_CONTEXT_STRING ||
+      '019a8077-46bf-76b7-b84b-0f2f0d4af218',
     // Time-based rotation: seed changes every N seconds (0 = disabled, seed never changes)
     // Example: 3600 = seed changes every hour, 86400 = every day
     rotationDurationSeconds:
