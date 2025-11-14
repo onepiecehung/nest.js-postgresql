@@ -11,6 +11,11 @@ import { MEDIA_CONSTANTS, MediaStatus, MediaType } from 'src/shared/constants';
 import { CacheService, R2Service } from 'src/shared/services';
 import { MediaQueryDto, UpdateMediaDto } from './dto';
 import { Media } from './entities/media.entity';
+import {
+  ImageScrambleMetadata,
+  ImageScramblerConfig,
+  ImageScramblerService,
+} from './image-scrambler.service';
 import { MediaService } from './media.service';
 
 describe('MediaService', () => {
@@ -19,6 +24,7 @@ describe('MediaService', () => {
   let configService: ConfigService;
   let r2Service: R2Service;
   let cacheService: CacheService;
+  let imageScramblerService: ImageScramblerService;
 
   // Mock data
   const mockUser = {
@@ -147,10 +153,21 @@ describe('MediaService', () => {
   };
 
   // Mock config service
+  const mockScramblerConfig: ImageScramblerConfig = {
+    enabled: true,
+    masterKey: 'test-master-key',
+    tileRows: 24,
+    tileCols: 12,
+    version: 1,
+    contextString: 'jai-image-scramble-v1',
+    rotationDurationSeconds: 0,
+  };
+
   const mockConfigService = {
     get: jest.fn().mockImplementation((key: string) => {
       const config = {
         'r2.folders.media': 'media',
+        'app.imageScrambler': mockScramblerConfig,
       };
       return config[key];
     }),
@@ -188,6 +205,11 @@ describe('MediaService', () => {
     getOrSetWithPrefix: jest.fn(),
   };
 
+  // Mock image scrambler service
+  const mockImageScramblerService = {
+    scrambleIfNeeded: jest.fn(),
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -208,6 +230,10 @@ describe('MediaService', () => {
           provide: CacheService,
           useValue: mockCacheService,
         },
+        {
+          provide: ImageScramblerService,
+          useValue: mockImageScramblerService,
+        },
       ],
     }).compile();
 
@@ -216,6 +242,9 @@ describe('MediaService', () => {
     configService = module.get<ConfigService>(ConfigService);
     r2Service = module.get<R2Service>(R2Service);
     cacheService = module.get<CacheService>(CacheService);
+    imageScramblerService = module.get<ImageScramblerService>(
+      ImageScramblerService,
+    );
   });
 
   afterEach(() => {
@@ -350,6 +379,9 @@ describe('MediaService', () => {
         key: mockUploadResult.key,
         storageProvider: 'r2',
         userId: userId,
+        width: undefined,
+        height: undefined,
+        metadata: expect.stringContaining('"originalName":"test-image.jpg"'),
       });
       expect(mockR2Service.uploadFile).toHaveBeenCalledWith(
         mockFile.buffer,
@@ -1098,6 +1130,221 @@ describe('MediaService', () => {
         // Assert
         expect(result).toBe(expectedType);
       });
+    });
+  });
+
+  describe('getScrambleKey', () => {
+    const mockScrambleMetadata: ImageScrambleMetadata = {
+      enabled: true,
+      version: 1,
+      salt: Buffer.from('test-salt-12345678').toString('base64'),
+      tileRows: 24,
+      tileCols: 12,
+    };
+
+    beforeEach(() => {
+      // Reset config service mock to default
+      mockConfigService.get.mockImplementation((key: string) => {
+        const config = {
+          'r2.folders.media': 'media',
+          'app.imageScrambler': mockScramblerConfig,
+        };
+        return config[key];
+      });
+    });
+
+    it('should return scramble key for valid image with metadata', async () => {
+      // Arrange
+      const id = '1234567890123456789';
+      const imageMedia = createMockMedia({
+        type: 'image' as MediaType,
+        metadata: JSON.stringify(mockScrambleMetadata),
+      });
+
+      jest.spyOn(service, 'findById').mockResolvedValue(imageMedia);
+
+      // Act
+      const result = await service.getScrambleKey(id);
+
+      // Assert
+      expect(result).toHaveProperty('permutationSeed');
+      expect(result).toHaveProperty('tileRows', 24);
+      expect(result).toHaveProperty('tileCols', 12);
+      expect(result).toHaveProperty('version', 1);
+      expect(typeof result.permutationSeed).toBe('string');
+      expect(result.permutationSeed.length).toBeGreaterThan(0);
+      expect(service.findById).toHaveBeenCalledWith(id);
+    });
+
+    it('should throw error when media not found', async () => {
+      // Arrange
+      const id = '1234567890123456789';
+      jest
+        .spyOn(service, 'findById')
+        .mockResolvedValue(null as unknown as Media);
+
+      // Act & Assert
+      await expect(service.getScrambleKey(id)).rejects.toThrow(
+        new HttpException(
+          { messageKey: 'media.MEDIA_NOT_FOUND' },
+          HttpStatus.NOT_FOUND,
+        ),
+      );
+    });
+
+    it('should throw error when media is not an image', async () => {
+      // Arrange
+      const id = '1234567890123456789';
+      const videoMedia = createMockMedia({
+        type: 'video' as MediaType,
+        metadata: JSON.stringify(mockScrambleMetadata),
+      });
+
+      jest.spyOn(service, 'findById').mockResolvedValue(videoMedia);
+
+      // Act & Assert
+      await expect(service.getScrambleKey(id)).rejects.toThrow(
+        new HttpException(
+          { messageKey: 'media.MEDIA_NOT_IMAGE' },
+          HttpStatus.BAD_REQUEST,
+        ),
+      );
+    });
+
+    it('should throw error when metadata is missing', async () => {
+      // Arrange
+      const id = '1234567890123456789';
+      const imageMedia = createMockMedia({
+        type: 'image' as MediaType,
+        metadata: undefined,
+      });
+
+      jest.spyOn(service, 'findById').mockResolvedValue(imageMedia);
+
+      // Act & Assert
+      await expect(service.getScrambleKey(id)).rejects.toThrow(
+        new HttpException(
+          { messageKey: 'media.SCRAMBLER_METADATA_MISSING' },
+          HttpStatus.BAD_REQUEST,
+        ),
+      );
+    });
+
+    it('should throw error when metadata is invalid JSON', async () => {
+      // Arrange
+      const id = '1234567890123456789';
+      const imageMedia = createMockMedia({
+        type: 'image' as MediaType,
+        metadata: 'invalid-json{',
+      });
+
+      jest.spyOn(service, 'findById').mockResolvedValue(imageMedia);
+
+      // Act & Assert
+      await expect(service.getScrambleKey(id)).rejects.toThrow(
+        new HttpException(
+          { messageKey: 'media.SCRAMBLER_METADATA_INVALID' },
+          HttpStatus.INTERNAL_SERVER_ERROR,
+        ),
+      );
+    });
+
+    it('should throw error when scrambler is not enabled in metadata', async () => {
+      // Arrange
+      const id = '1234567890123456789';
+      const disabledMetadata: ImageScrambleMetadata = {
+        ...mockScrambleMetadata,
+        enabled: false,
+      };
+      const imageMedia = createMockMedia({
+        type: 'image' as MediaType,
+        metadata: JSON.stringify(disabledMetadata),
+      });
+
+      jest.spyOn(service, 'findById').mockResolvedValue(imageMedia);
+
+      // Act & Assert
+      await expect(service.getScrambleKey(id)).rejects.toThrow(
+        new HttpException(
+          { messageKey: 'media.SCRAMBLER_NOT_ENABLED' },
+          HttpStatus.BAD_REQUEST,
+        ),
+      );
+    });
+
+    it('should throw error when scrambler config is disabled', async () => {
+      // Arrange
+      const id = '1234567890123456789';
+      const imageMedia = createMockMedia({
+        type: 'image' as MediaType,
+        metadata: JSON.stringify(mockScrambleMetadata),
+      });
+
+      jest.spyOn(service, 'findById').mockResolvedValue(imageMedia);
+      mockConfigService.get.mockImplementation((key: string) => {
+        if (key === 'app.imageScrambler') {
+          return { ...mockScramblerConfig, enabled: false };
+        }
+        return mockConfigService.get.mock.results[0]?.value;
+      });
+
+      // Act & Assert
+      await expect(service.getScrambleKey(id)).rejects.toThrow(
+        new HttpException(
+          { messageKey: 'media.SCRAMBLER_DISABLED' },
+          HttpStatus.BAD_REQUEST,
+        ),
+      );
+    });
+
+    it('should use rotation duration when configured', async () => {
+      // Arrange
+      const id = '1234567890123456789';
+      const imageMedia = createMockMedia({
+        type: 'image' as MediaType,
+        metadata: JSON.stringify(mockScrambleMetadata),
+      });
+
+      jest.spyOn(service, 'findById').mockResolvedValue(imageMedia);
+      mockConfigService.get.mockImplementation((key: string) => {
+        if (key === 'app.imageScrambler') {
+          return { ...mockScramblerConfig, rotationDurationSeconds: 3600 };
+        }
+        return mockConfigService.get.mock.results[0]?.value;
+      });
+
+      // Act
+      const result = await service.getScrambleKey(id);
+
+      // Assert
+      expect(result).toHaveProperty('permutationSeed');
+      expect(typeof result.permutationSeed).toBe('string');
+    });
+
+    it('should handle missing optional fields in metadata', async () => {
+      // Arrange
+      const id = '1234567890123456789';
+      const incompleteMetadata = {
+        enabled: true,
+        salt: Buffer.from('test-salt-12345678').toString('base64'),
+        tileRows: 24,
+        tileCols: 12,
+        // version is missing
+      };
+      const imageMedia = createMockMedia({
+        type: 'image' as MediaType,
+        metadata: JSON.stringify(incompleteMetadata),
+      });
+
+      jest.spyOn(service, 'findById').mockResolvedValue(imageMedia);
+
+      // Act
+      const result = await service.getScrambleKey(id);
+
+      // Assert
+      expect(result).toHaveProperty('version');
+      // Should use version from config when not in metadata
+      expect(result.version).toBe(mockScramblerConfig.version);
     });
   });
 });
