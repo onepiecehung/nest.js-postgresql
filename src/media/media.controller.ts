@@ -1,29 +1,29 @@
 import {
+  Body,
   Controller,
   Delete,
   Get,
+  HttpException,
+  HttpStatus,
   Param,
   Post,
   Put,
   Query,
+  Request,
   UploadedFiles,
   UseInterceptors,
-  Body,
-  HttpException,
-  HttpStatus,
-  Request,
 } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
 
-import { MediaService } from './media.service';
-import {
-  UpdateMediaDto,
-  MediaQueryDto,
-  PresignedUploadDto,
-  PresignedDownloadQueryDto,
-} from './dto';
 import { Auth } from 'src/common/decorators';
 import { AuthPayload } from 'src/common/interface';
+import {
+  MediaQueryDto,
+  PresignedDownloadQueryDto,
+  PresignedUploadDto,
+  UpdateMediaDto,
+} from './dto';
+import { MediaService } from './media.service';
 
 @Controller('media')
 export class MediaController {
@@ -128,11 +128,6 @@ export class MediaController {
   @Get(':id/scramble-key')
   @Auth()
   async getScrambleKey(@Param('id') id: string) {
-    const data = await this.mediaService.getScrambleKey(id);
-    return {
-      success: true,
-      data,
-      messageKey: 'media.SCRAMBLE_KEY_SUCCESS',
-    };
+    return this.mediaService.getScrambleKey(id);
   }
 }

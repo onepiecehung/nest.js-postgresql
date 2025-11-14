@@ -16,6 +16,7 @@ import { CreateMediaDto, MediaQueryDto, UpdateMediaDto } from './dto';
 import { Media } from './entities/media.entity';
 import {
   ImageScrambleMetadata,
+  ImageScramblerConfig,
   ImageScramblerService,
 } from './image-scrambler.service';
 
@@ -59,6 +60,7 @@ export class MediaService extends BaseService<Media> {
           duration: true,
           downloadCount: true,
           viewCount: true,
+          metadata: true,
           user: {
             id: true,
             name: true,
@@ -162,14 +164,12 @@ export class MediaService extends BaseService<Media> {
     let imageScramblerMetadata: ImageScrambleMetadata | undefined;
 
     try {
-      this.logger.log('scrambleIfNeeded', isImage);
       const scrambleResult = isImage
         ? await this.imageScramblerService.scrambleIfNeeded(
             file.buffer,
             file.mimetype,
           )
         : null;
-      this.logger.log('scrambleResult', scrambleResult);
       if (scrambleResult) {
         uploadBuffer = scrambleResult.buffer;
         width = scrambleResult.width;
@@ -201,6 +201,7 @@ export class MediaService extends BaseService<Media> {
       contentType: file.mimetype,
       metadata,
     });
+    Object.assign(metadata, { ...imageScramblerMetadata });
 
     // Return CreateMediaDto for BaseService to handle
     return {
@@ -574,7 +575,6 @@ export class MediaService extends BaseService<Media> {
         HttpStatus.NOT_FOUND,
       );
     }
-
     // Only make sense for image type
     if (media.type !== MEDIA_CONSTANTS.TYPES.IMAGE) {
       throw new HttpException(
@@ -594,11 +594,9 @@ export class MediaService extends BaseService<Media> {
       );
     }
 
-    let parsed: { imageScrambler?: ImageScrambleMetadata };
+    let parsed: ImageScrambleMetadata | undefined;
     try {
-      parsed = JSON.parse(media.metadata) as {
-        imageScrambler?: ImageScrambleMetadata;
-      };
+      parsed = JSON.parse(media.metadata) as ImageScrambleMetadata;
     } catch (error) {
       this.logger.error('Failed to parse media.metadata JSON:', error);
       throw new HttpException(
@@ -609,7 +607,7 @@ export class MediaService extends BaseService<Media> {
       );
     }
 
-    const scramblerMeta = parsed?.imageScrambler;
+    const scramblerMeta = parsed;
     if (
       !scramblerMeta ||
       !scramblerMeta.enabled ||
@@ -626,13 +624,8 @@ export class MediaService extends BaseService<Media> {
     }
 
     const salt = Buffer.from(scramblerMeta.salt, 'base64');
-    const scramblerConfig = this.configService.get('app.imageScrambler') as {
-      enabled: boolean;
-      masterKey: string;
-      tileRows: number;
-      tileCols: number;
-      version: number;
-    };
+    const scramblerConfig =
+      this.configService.get<ImageScramblerConfig>('app.imageScrambler');
 
     if (!scramblerConfig?.enabled) {
       throw new HttpException(
@@ -644,12 +637,29 @@ export class MediaService extends BaseService<Media> {
     }
 
     const masterKey = Buffer.from(scramblerConfig.masterKey, 'utf-8');
+    // Use context string from config (must match the one used during scrambling)
+    const contextString =
+      scramblerConfig.contextString || 'jai-image-scramble-v1';
     const imageKey = Buffer.from(
-      hkdfSync('sha256', masterKey, salt, 'jai-image-scramble-v1', 32),
+      hkdfSync('sha256', masterKey, salt, contextString, 32),
     );
 
+    // Calculate time window for rotation if enabled
+    // If rotationDurationSeconds > 0, seed will change every N seconds
+    // This allows time-based seed rotation for enhanced security
+    let timeWindow = '';
+    const rotationDuration = scramblerConfig.rotationDurationSeconds ?? 0;
+    if (rotationDuration > 0) {
+      const now = Math.floor(Date.now() / 1000); // Current time in seconds
+      const windowIndex = Math.floor(now / rotationDuration);
+      timeWindow = `:window:${windowIndex}`;
+    }
+
+    // Generate permutation seed with optional time window
+    // If rotation is enabled, seed changes every rotationDurationSeconds
+    // If rotation is disabled (0), seed remains constant for the same image
     const permSeed = createHmac('sha256', imageKey)
-      .update('perm-seed')
+      .update(`perm-seed${timeWindow}`)
       .digest('base64url'); // FE will use this
 
     return {
