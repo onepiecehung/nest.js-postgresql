@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -63,7 +64,7 @@ export class SeriesController {
   async getAniListMediaById(@Param('anilistId') anilistId: string) {
     const id = parseInt(anilistId, 10);
     if (isNaN(id)) {
-      throw new Error('Invalid AniList ID. Must be a number.');
+      throw new BadRequestException('Invalid AniList ID. Must be a number.');
     }
     return this.anilistCrawlService.getMediaById(id);
   }

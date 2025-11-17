@@ -8,447 +8,21 @@ import { SERIES_CONSTANTS } from 'src/shared/constants';
 import { CacheService } from 'src/shared/services';
 import { Repository } from 'typeorm';
 import { Series } from '../entities/series.entity';
-
-/**
- * AniList GraphQL API Response Types
- */
-export interface AniListMediaTitle {
-  romaji?: string;
-  english?: string;
-  native?: string;
-  userPreferred?: string;
-}
-
-export interface AniListFuzzyDate {
-  year?: number;
-  month?: number;
-  day?: number;
-}
-
-export interface AniListMediaCoverImage {
-  large?: string;
-  medium?: string;
-  color?: string;
-  extraLarge?: string;
-}
-
-export interface AniListStudio {
-  id: number;
-  name: string;
-  isAnimationStudio?: boolean;
-  siteUrl?: string;
-  favourites?: number;
-}
-
-export interface AniListStudioEdge {
-  id?: number;
-  isMain?: boolean;
-  node: AniListStudio;
-}
-
-export interface AniListStaffName {
-  first?: string;
-  middle?: string;
-  last?: string;
-  full?: string;
-  native?: string;
-  alternative?: string[];
-  userPreferred?: string;
-}
-
-export interface AniListStaffImage {
-  large?: string;
-  medium?: string;
-}
-
-export interface AniListStaff {
-  id: number;
-  name?: AniListStaffName;
-  language?: string;
-  image?: AniListStaffImage;
-  description?: string;
-  primaryOccupations?: string[];
-  gender?: string;
-  dateOfBirth?: AniListFuzzyDate;
-  dateOfDeath?: AniListFuzzyDate;
-  age?: number;
-  yearsActive?: number[];
-  homeTown?: string;
-  siteUrl?: string;
-  favourites?: number;
-}
-
-export interface AniListStaffEdge {
-  id?: number;
-  role?: string;
-  node: AniListStaff;
-}
-
-export interface AniListCharacterName {
-  first?: string;
-  middle?: string;
-  last?: string;
-  full?: string;
-  native?: string;
-  alternative?: string[];
-  userPreferred?: string;
-}
-
-export interface AniListCharacterImage {
-  large?: string;
-  medium?: string;
-}
-
-export interface AniListCharacter {
-  id: number;
-  name?: AniListCharacterName;
-  image?: AniListCharacterImage;
-  description?: string;
-  gender?: string;
-  dateOfBirth?: AniListFuzzyDate;
-  age?: string;
-  bloodType?: string;
-  siteUrl?: string;
-  favourites?: number;
-  modNotes?: string;
-}
-
-export interface AniListVoiceActor {
-  id: number;
-  name?: AniListStaffName;
-  language?: string;
-  image?: AniListStaffImage;
-}
-
-export interface AniListCharacterEdge {
-  id?: number;
-  role?: string;
-  name?: string;
-  voiceActors?: AniListVoiceActor[];
-  node: AniListCharacter;
-}
-
-export interface AniListMediaRelation {
-  id: number;
-  type?: string;
-  title?: AniListMediaTitle;
-  format?: string;
-  status?: string;
-  coverImage?: AniListMediaCoverImage;
-}
-
-export interface AniListRelationEdge {
-  id?: number;
-  relationType?: string;
-  node: AniListMediaRelation;
-}
-
-export interface AniListRecommendationUser {
-  id: number;
-  name?: string;
-}
-
-export interface AniListRecommendation {
-  id: number;
-  rating?: number;
-  userRating?: string;
-  mediaRecommendation?: AniListMediaRelation;
-  user?: AniListRecommendationUser;
-}
-
-export interface AniListRecommendationEdge {
-  node: AniListRecommendation;
-}
-
-export interface AniListScoreDistribution {
-  score?: number;
-  amount?: number;
-}
-
-export interface AniListStatusDistribution {
-  status?: string;
-  amount?: number;
-}
-
-export interface AniListMediaStats {
-  scoreDistribution?: AniListScoreDistribution[];
-  statusDistribution?: AniListStatusDistribution[];
-}
-
-export interface AniListRanking {
-  id?: number;
-  rank?: number;
-  type?: string;
-  format?: string;
-  year?: number;
-  season?: string;
-  allTime?: boolean;
-  context?: string;
-}
-
-export interface AniListReviewUser {
-  id: number;
-  name?: string;
-}
-
-export interface AniListReview {
-  id: number;
-  summary?: string;
-  body?: string;
-  rating?: number;
-  ratingAmount?: number;
-  user?: AniListReviewUser;
-  createdAt?: number;
-  updatedAt?: number;
-}
-
-export interface AniListReviews {
-  nodes?: AniListReview[];
-  pageInfo?: AniListPageInfo;
-}
-
-export interface AniListMediaTag {
-  id: number;
-  name: string;
-  description?: string;
-  category?: string;
-  rank?: number;
-  isGeneralSpoiler?: boolean;
-  isMediaSpoiler?: boolean;
-  isAdult?: boolean;
-}
-
-export interface AniListExternalLink {
-  id?: number;
-  site: string;
-  url: string;
-  type?: string;
-  language?: string;
-  color?: string;
-  icon?: string;
-  notes?: string;
-  isDisabled?: boolean;
-}
-
-export interface AniListTrailer {
-  id?: string;
-  site?: string;
-  thumbnail?: string;
-}
-
-export interface AniListNextAiringEpisode {
-  id?: number;
-  airingAt?: number;
-  timeUntilAiring?: number;
-  episode?: number;
-  mediaId?: number;
-}
-
-export interface AniListMedia {
-  id: number;
-  idMal?: number;
-  title: AniListMediaTitle;
-  type: 'ANIME' | 'MANGA';
-  format?: string;
-  status?: string;
-  description?: string;
-  startDate?: AniListFuzzyDate;
-  endDate?: AniListFuzzyDate;
-  season?: string;
-  seasonYear?: number;
-  episodes?: number;
-  duration?: number;
-  chapters?: number;
-  volumes?: number;
-  countryOfOrigin?: string;
-  isLicensed?: boolean;
-  source?: string;
-  coverImage?: AniListMediaCoverImage;
-  bannerImage?: string;
-  synonyms?: string[];
-  averageScore?: number;
-  meanScore?: number;
-  popularity?: number;
-  isLocked?: boolean;
-  trending?: number;
-  isAdult?: boolean;
-  genres?: string[];
-  tags?: AniListMediaTag[];
-  externalLinks?: AniListExternalLink[];
-  streamingEpisodes?: Array<{
-    title?: string;
-    thumbnail?: string;
-    url?: string;
-    site?: string;
-  }>;
-  siteUrl?: string;
-  autoCreateForumThread?: boolean;
-  isRecommendationBlocked?: boolean;
-  isReviewBlocked?: boolean;
-  modNotes?: string;
-  updatedAt?: number;
-  favourites?: number;
-  trailer?: AniListTrailer;
-  nextAiringEpisode?: AniListNextAiringEpisode;
-  studios?: {
-    edges?: AniListStudioEdge[];
-  };
-  staff?: {
-    edges?: AniListStaffEdge[];
-  };
-  characters?: {
-    edges?: AniListCharacterEdge[];
-  };
-  relations?: {
-    edges?: AniListRelationEdge[];
-  };
-  recommendations?: {
-    edges?: AniListRecommendationEdge[];
-  };
-  stats?: AniListMediaStats;
-  rankings?: AniListRanking[];
-  mediaListEntry?: AniListMediaListEntry | null;
-  reviews?: AniListReviews;
-  hashtag?: string;
-  isFavourite?: boolean;
-  isFavouriteBlocked?: boolean;
-  isSaveBlocked?: boolean;
-}
-
-export interface AniListPageInfo {
-  total: number;
-  perPage: number;
-  currentPage: number;
-  lastPage: number;
-  hasNextPage: boolean;
-}
-
-interface AniListPage {
-  Page: {
-    pageInfo: AniListPageInfo;
-    media: AniListMedia[];
-  };
-}
-
-interface AniListGraphQLResponse {
-  data?: AniListPage;
-  errors?: Array<{
-    message: string;
-    locations?: Array<{ line: number; column: number }>;
-    path?: string[];
-  }>;
-}
-
-interface AniListMediaResponse {
-  data?: {
-    Media?: AniListMedia;
-  };
-  errors?: Array<{
-    message: string;
-    locations?: Array<{ line: number; column: number }>;
-    path?: string[];
-  }>;
-}
-
-/**
- * AniList MediaList Entry Types
- * Based on AniList API MediaList object: https://docs.anilist.co/reference/object/media-list
- */
-export interface AniListMediaListEntry {
-  id: number;
-  userId: number;
-  mediaId: number;
-  status?: string; // CURRENT, PLANNING, COMPLETED, DROPPED, PAUSED, REPEATING
-  score?: number;
-  progress?: number; // Episodes watched or chapters read
-  progressVolumes?: number; // Volumes read (manga only)
-  repeat?: number; // Number of times rewatched/reread
-  priority?: number;
-  private?: boolean;
-  notes?: string;
-  hiddenFromStatusLists?: boolean;
-  customLists?: string[]; // JSON array of custom list names
-  advancedScores?: Record<string, number>; // JSON object with advanced scores
-  startedAt?: AniListFuzzyDate;
-  completedAt?: AniListFuzzyDate;
-  updatedAt?: number; // Unix timestamp
-  createdAt?: number; // Unix timestamp
-  media?: AniListMedia;
-}
-
-interface AniListMediaListPageData {
-  Page: {
-    pageInfo: AniListPageInfo;
-    mediaList: AniListMediaListEntry[];
-  };
-}
-
-interface AniListMediaListCollectionList {
-  name: string;
-  isCustomList: boolean;
-  isSplitCompletedList: boolean;
-  status?: string;
-  entries: AniListMediaListEntry[];
-}
-
-interface AniListMediaListCollection {
-  lists: AniListMediaListCollectionList[];
-  hasNextChunk?: boolean;
-  user?: {
-    id: number;
-    name: string;
-    mediaListOptions?: {
-      scoreFormat?: string;
-      rowOrder?: string;
-      animeList?: {
-        sectionOrder?: string[];
-        splitCompletedSectionByFormat?: boolean;
-        customLists?: string[];
-        advancedScoring?: string[];
-        advancedScoringEnabled?: boolean;
-      };
-      mangaList?: {
-        sectionOrder?: string[];
-        splitCompletedSectionByFormat?: boolean;
-        customLists?: string[];
-        advancedScoring?: string[];
-        advancedScoringEnabled?: boolean;
-      };
-    };
-  };
-}
-
-interface AniListMediaListResponse {
-  data?: {
-    MediaList?: AniListMediaListEntry;
-    MediaListCollection?: AniListMediaListCollection;
-    Page?: AniListMediaListPageData['Page'];
-    Media?: {
-      id: number;
-      title?: AniListMediaTitle;
-      mediaListEntry?: AniListMediaListEntry | null;
-    };
-  };
-  errors?: Array<{
-    message: string;
-    locations?: Array<{ line: number; column: number }>;
-    path?: string[];
-  }>;
-}
-
-interface AniListTokenResponse {
-  access_token: string;
-  token_type: string;
-  expires_in: number;
-  refresh_token?: string;
-}
-
-interface AniListOAuthConfig {
-  clientId?: string;
-  clientSecret?: string;
-  redirectUri?: string;
-  tokenUrl: string;
-}
+import {
+  AniListExternalLink,
+  AniListFuzzyDate,
+  AniListGraphQLResponse,
+  AniListMedia,
+  AniListMediaListCollection,
+  AniListMediaListEntry,
+  AniListMediaListResponse,
+  AniListMediaResponse,
+  AniListOAuthConfig,
+  AniListPage,
+  AniListPageInfo,
+  AniListStreamingEpisode,
+  AniListTokenResponse,
+} from './anilist.types';
 
 /**
  * Service for crawling media data from AniList API
@@ -489,10 +63,343 @@ export class AniListCrawlService {
   }
 
   /**
+   * GraphQL fragment for Media fields
+   * Reusable fragment to avoid duplication between getMediaQuery and getMediaByIdQuery
+   */
+  private getMediaFieldsFragment(): string {
+    return `
+      fragment mediaFields on Media {
+        id
+        idMal
+        title {
+          romaji
+          english
+          native
+          userPreferred
+        }
+        type
+        format
+        status
+        description
+        startDate {
+          year
+          month
+          day
+        }
+        endDate {
+          year
+          month
+          day
+        }
+        season
+        seasonYear
+        episodes
+        duration
+        chapters
+        volumes
+        countryOfOrigin
+        isLicensed
+        source
+        coverImage {
+          large
+          medium
+          color
+          extraLarge
+        }
+        bannerImage
+        synonyms
+        averageScore
+        meanScore
+        popularity
+        isLocked
+        trending
+        isAdult
+        genres
+        tags {
+          id
+          name
+          description
+          category
+          rank
+          isGeneralSpoiler
+          isMediaSpoiler
+          isAdult
+        }
+        externalLinks {
+          id
+          site
+          url
+          type
+          language
+          color
+          icon
+          notes
+          isDisabled
+        }
+        streamingEpisodes {
+          title
+          thumbnail
+          url
+          site
+        }
+        siteUrl
+        autoCreateForumThread
+        isRecommendationBlocked
+        isReviewBlocked
+        modNotes
+        updatedAt
+        favourites
+        trailer {
+          id
+          site
+          thumbnail
+        }
+        nextAiringEpisode {
+          id
+          airingAt
+          timeUntilAiring
+          episode
+          mediaId
+        }
+        studios {
+          edges {
+            id
+            isMain
+            node {
+              id
+              name
+              isAnimationStudio
+              siteUrl
+              favourites
+            }
+          }
+        }
+        staff {
+          edges {
+            id
+            role
+            node {
+              id
+              name {
+                first
+                middle
+                last
+                full
+                native
+                alternative
+                userPreferred
+              }
+              language
+              image {
+                large
+                medium
+              }
+              description
+              primaryOccupations
+              gender
+              dateOfBirth {
+                year
+                month
+                day
+              }
+              dateOfDeath {
+                year
+                month
+                day
+              }
+              age
+              yearsActive
+              homeTown
+              siteUrl
+              favourites
+            }
+          }
+        }
+        characters {
+          edges {
+            id
+            role
+            name
+            voiceActors {
+              id
+              name {
+                first
+                middle
+                last
+                full
+                native
+                alternative
+                userPreferred
+              }
+              language
+              image {
+                large
+                medium
+              }
+            }
+            node {
+              id
+              name {
+                first
+                middle
+                last
+                full
+                native
+                alternative
+                userPreferred
+              }
+              image {
+                large
+                medium
+              }
+              description
+              gender
+              dateOfBirth {
+                year
+                month
+                day
+              }
+              age
+              bloodType
+              siteUrl
+              favourites
+              modNotes
+            }
+          }
+        }
+        relations {
+          edges {
+            id
+            relationType
+            node {
+              id
+              type
+              title {
+                romaji
+                english
+                native
+                userPreferred
+              }
+              format
+              status
+              coverImage {
+                large
+                medium
+              }
+            }
+          }
+        }
+        recommendations {
+          edges {
+            node {
+              id
+              rating
+              userRating
+              mediaRecommendation {
+                id
+                type
+                title {
+                  romaji
+                  english
+                  native
+                  userPreferred
+                }
+                format
+                status
+                coverImage {
+                  large
+                  medium
+                }
+              }
+              user {
+                id
+                name
+              }
+            }
+          }
+        }
+        stats {
+          scoreDistribution {
+            score
+            amount
+          }
+          statusDistribution {
+            status
+            amount
+          }
+        }
+        rankings {
+          id
+          rank
+          type
+          format
+          year
+          season
+          allTime
+          context
+        }
+        mediaListEntry {
+          id
+          status
+          score
+          progress
+          progressVolumes
+          repeat
+          priority
+          private
+          notes
+          hiddenFromStatusLists
+          customLists
+          advancedScores
+          startedAt {
+            year
+            month
+            day
+          }
+          completedAt {
+            year
+            month
+            day
+          }
+          updatedAt
+          createdAt
+        }
+        reviews {
+          nodes {
+            id
+            summary
+            body
+            rating
+            ratingAmount
+            user {
+              id
+              name
+            }
+            createdAt
+            updatedAt
+          }
+          pageInfo {
+            total
+            perPage
+            currentPage
+            lastPage
+            hasNextPage
+          }
+        }
+        hashtag
+        isFavourite
+        isFavouriteBlocked
+      }
+    `;
+  }
+
+  /**
    * GraphQL query to fetch media data from AniList
+   * Uses fragment to avoid code duplication
    */
   private getMediaQuery(): string {
     return `
+      ${this.getMediaFieldsFragment()}
       query ($page: Int, $perPage: Int, $type: MediaType) {
         Page(page: $page, perPage: $perPage) {
           pageInfo {
@@ -503,326 +410,7 @@ export class AniListCrawlService {
             hasNextPage
           }
           media(type: $type, sort: ID_DESC) {
-            id
-            idMal
-            title {
-              romaji
-              english
-              native
-              userPreferred
-            }
-            type
-            format
-            status
-            description
-            startDate {
-              year
-              month
-              day
-            }
-            endDate {
-              year
-              month
-              day
-            }
-            season
-            seasonYear
-            episodes
-            duration
-            chapters
-            volumes
-            countryOfOrigin
-            isLicensed
-            source
-            coverImage {
-              large
-              medium
-              color
-              extraLarge
-            }
-            bannerImage
-            synonyms
-            averageScore
-            meanScore
-            popularity
-            isLocked
-            trending
-            isAdult
-            genres
-            tags {
-              id
-              name
-              description
-              category
-              rank
-              isGeneralSpoiler
-              isMediaSpoiler
-              isAdult
-            }
-            externalLinks {
-              id
-              site
-              url
-              type
-              language
-              color
-              icon
-              notes
-              isDisabled
-            }
-            streamingEpisodes {
-              title
-              thumbnail
-              url
-              site
-            }
-            siteUrl
-            autoCreateForumThread
-            isRecommendationBlocked
-            isReviewBlocked
-            modNotes
-            updatedAt
-            favourites
-            trailer {
-              id
-              site
-              thumbnail
-            }
-            nextAiringEpisode {
-              id
-              airingAt
-              timeUntilAiring
-              episode
-              mediaId
-            }
-            studios {
-              edges {
-                id
-                isMain
-                node {
-                  id
-                  name
-                  isAnimationStudio
-                  siteUrl
-                  favourites
-                }
-              }
-            }
-            staff {
-              edges {
-                id
-                role
-                node {
-                  id
-                  name {
-                    first
-                    middle
-                    last
-                    full
-                    native
-                    alternative
-                    userPreferred
-                  }
-                  language
-                  image {
-                    large
-                    medium
-                  }
-                  description
-                  primaryOccupations
-                  gender
-                  dateOfBirth {
-                    year
-                    month
-                    day
-                  }
-                  dateOfDeath {
-                    year
-                    month
-                    day
-                  }
-                  age
-                  yearsActive
-                  homeTown
-                  siteUrl
-                  favourites
-                }
-              }
-            }
-            characters {
-              edges {
-                id
-                role
-                name
-                voiceActors {
-                  id
-                  name {
-                    first
-                    middle
-                    last
-                    full
-                    native
-                    alternative
-                    userPreferred
-                  }
-                  language
-                  image {
-                    large
-                    medium
-                  }
-                }
-                node {
-                  id
-                  name {
-                    first
-                    middle
-                    last
-                    full
-                    native
-                    alternative
-                    userPreferred
-                  }
-                  image {
-                    large
-                    medium
-                  }
-                  description
-                  gender
-                  dateOfBirth {
-                    year
-                    month
-                    day
-                  }
-                  age
-                  bloodType
-                  siteUrl
-                  favourites
-                  modNotes
-                }
-              }
-            }
-            relations {
-              edges {
-                id
-                relationType
-                node {
-                  id
-                  type
-                  title {
-                    romaji
-                    english
-                    native
-                    userPreferred
-                  }
-                  format
-                  status
-                  coverImage {
-                    large
-                    medium
-                  }
-                }
-              }
-            }
-            recommendations {
-              edges {
-                node {
-                  id
-                  rating
-                  userRating
-                  mediaRecommendation {
-                    id
-                    type
-                    title {
-                      romaji
-                      english
-                      native
-                      userPreferred
-                    }
-                    format
-                    status
-                    coverImage {
-                      large
-                      medium
-                    }
-                  }
-                  user {
-                    id
-                    name
-                  }
-                }
-              }
-            }
-            stats {
-              scoreDistribution {
-                score
-                amount
-              }
-              statusDistribution {
-                status
-                amount
-              }
-            }
-            rankings {
-              id
-              rank
-              type
-              format
-              year
-              season
-              allTime
-              context
-            }
-            mediaListEntry {
-              id
-              status
-              score
-              progress
-              progressVolumes
-              repeat
-              priority
-              private
-              notes
-              hiddenFromStatusLists
-              customLists
-              advancedScores
-              startedAt {
-                year
-                month
-                day
-              }
-              completedAt {
-                year
-                month
-                day
-              }
-              updatedAt
-              createdAt
-            }
-            reviews {
-              nodes {
-                id
-                summary
-                body
-                rating
-                ratingAmount
-                user {
-                  id
-                  name
-                }
-                createdAt
-                updatedAt
-              }
-              pageInfo {
-                total
-                perPage
-                currentPage
-                lastPage
-                hasNextPage
-              }
-            }
-            hashtag
-            isFavourite
-            isFavouriteBlocked
+            ...mediaFields
           }
         }
       }
@@ -1073,334 +661,14 @@ export class AniListCrawlService {
 
   /**
    * GraphQL query to fetch single media by ID from AniList
-   * Uses the same fields as getMediaQuery but for a single media item
+   * Uses fragment to avoid code duplication
    */
   private getMediaByIdQuery(): string {
-    // Create a complete query for single Media by ID
-    // This is the same structure as getMediaQuery but queries Media(id: $id) instead of Page
     return `
+      ${this.getMediaFieldsFragment()}
       query ($id: Int) {
         Media(id: $id) {
-          id
-          idMal
-          title {
-            romaji
-            english
-            native
-            userPreferred
-          }
-          type
-          format
-          status
-          description
-          startDate {
-            year
-            month
-            day
-          }
-          endDate {
-            year
-            month
-            day
-          }
-          season
-          seasonYear
-          episodes
-          duration
-          chapters
-          volumes
-          countryOfOrigin
-          isLicensed
-          source
-          coverImage {
-            large
-            medium
-            color
-            extraLarge
-          }
-          bannerImage
-          synonyms
-          averageScore
-          meanScore
-          popularity
-          isLocked
-          trending
-          isAdult
-          genres
-          tags {
-            id
-            name
-            description
-            category
-            rank
-            isGeneralSpoiler
-            isMediaSpoiler
-            isAdult
-          }
-          externalLinks {
-            id
-            site
-            url
-            type
-            language
-            color
-            icon
-            notes
-            isDisabled
-          }
-          streamingEpisodes {
-            title
-            thumbnail
-            url
-            site
-          }
-          siteUrl
-          autoCreateForumThread
-          isRecommendationBlocked
-          isReviewBlocked
-          modNotes
-          updatedAt
-          favourites
-          trailer {
-            id
-            site
-            thumbnail
-          }
-          nextAiringEpisode {
-            id
-            airingAt
-            timeUntilAiring
-            episode
-            mediaId
-          }
-          studios {
-            edges {
-              id
-              isMain
-              node {
-                id
-                name
-                isAnimationStudio
-                siteUrl
-                favourites
-              }
-            }
-          }
-          staff {
-            edges {
-              id
-              role
-              node {
-                id
-                name {
-                  first
-                  middle
-                  last
-                  full
-                  native
-                  alternative
-                  userPreferred
-                }
-                language
-                image {
-                  large
-                  medium
-                }
-                description
-                primaryOccupations
-                gender
-                dateOfBirth {
-                  year
-                  month
-                  day
-                }
-                dateOfDeath {
-                  year
-                  month
-                  day
-                }
-                age
-                yearsActive
-                homeTown
-                siteUrl
-                favourites
-              }
-            }
-          }
-          characters {
-            edges {
-              id
-              role
-              name
-              voiceActors {
-                id
-                name {
-                  first
-                  middle
-                  last
-                  full
-                  native
-                  alternative
-                  userPreferred
-                }
-                language
-                image {
-                  large
-                  medium
-                }
-              }
-              node {
-                id
-                name {
-                  first
-                  middle
-                  last
-                  full
-                  native
-                  alternative
-                  userPreferred
-                }
-                image {
-                  large
-                  medium
-                }
-                description
-                gender
-                dateOfBirth {
-                  year
-                  month
-                  day
-                }
-                age
-                bloodType
-                siteUrl
-                favourites
-                modNotes
-              }
-            }
-          }
-          relations {
-            edges {
-              id
-              relationType
-              node {
-                id
-                type
-                title {
-                  romaji
-                  english
-                  native
-                  userPreferred
-                }
-                format
-                status
-                coverImage {
-                  large
-                  medium
-                }
-              }
-            }
-          }
-          recommendations {
-            edges {
-              node {
-                id
-                rating
-                userRating
-                mediaRecommendation {
-                  id
-                  type
-                  title {
-                    romaji
-                    english
-                    native
-                    userPreferred
-                  }
-                  format
-                  status
-                  coverImage {
-                    large
-                    medium
-                  }
-                }
-                user {
-                  id
-                  name
-                }
-              }
-            }
-          }
-          stats {
-            scoreDistribution {
-              score
-              amount
-            }
-            statusDistribution {
-              status
-              amount
-            }
-          }
-          rankings {
-            id
-            rank
-            type
-            format
-            year
-            season
-            allTime
-            context
-          }
-          mediaListEntry {
-            id
-            status
-            score
-            progress
-            progressVolumes
-            repeat
-            priority
-            private
-            notes
-            hiddenFromStatusLists
-            customLists
-            advancedScores
-            startedAt {
-              year
-              month
-              day
-            }
-            completedAt {
-              year
-              month
-              day
-            }
-            updatedAt
-            createdAt
-          }
-          reviews {
-            nodes {
-              id
-              summary
-              body
-              rating
-              ratingAmount
-              user {
-                id
-                name
-              }
-              createdAt
-              updatedAt
-            }
-            pageInfo {
-              total
-              perPage
-              currentPage
-              lastPage
-              hasNextPage
-            }
-          }
-          hashtag
-          isFavourite
-          isFavouriteBlocked
+          ...mediaFields
         }
       }
     `;
@@ -1615,17 +883,14 @@ export class AniListCrawlService {
 
   /**
    * Convert streaming episodes array to object
+   * Creates a simple key-value map for the streamingEpisodes field (site -> url)
+   * Full episode data (including title and thumbnail) is preserved in metadata
    *
    * @param streamingEpisodes - Array of streaming episodes
-   * @returns Object with site as key and episode data as value
+   * @returns Object with site as key and URL as value
    */
   private convertStreamingEpisodes(
-    streamingEpisodes?: Array<{
-      title?: string;
-      thumbnail?: string;
-      url?: string;
-      site?: string;
-    }>,
+    streamingEpisodes?: AniListStreamingEpisode[],
   ): Record<string, string> | undefined {
     if (!streamingEpisodes || streamingEpisodes.length === 0) {
       return undefined;
@@ -1944,6 +1209,16 @@ export class AniListCrawlService {
         hashtag: anilistMedia.hashtag || undefined,
         isFavourite: anilistMedia.isFavourite || false,
         isFavouriteBlocked: anilistMedia.isFavouriteBlocked || false,
+        streamingEpisodes:
+          anilistMedia.streamingEpisodes &&
+          anilistMedia.streamingEpisodes.length > 0
+            ? anilistMedia.streamingEpisodes.map((episode) => ({
+                title: episode.title || undefined,
+                thumbnail: episode.thumbnail || undefined,
+                url: episode.url || undefined,
+                site: episode.site || undefined,
+              }))
+            : undefined,
       },
     };
 
