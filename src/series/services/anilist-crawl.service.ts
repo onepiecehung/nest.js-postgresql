@@ -1650,7 +1650,10 @@ export class AniListCrawlService {
   private mapAniListMediaToSeries(anilistMedia: AniListMedia): Partial<Series> {
     const seriesData: Partial<Series> = {
       aniListId: anilistMedia.id.toString(),
-      myAnimeListId: anilistMedia.idMal?.toString(),
+      myAnimeListId:
+        anilistMedia.idMal !== null && anilistMedia.idMal !== undefined
+          ? anilistMedia.idMal.toString()
+          : undefined,
       title: {
         romaji: anilistMedia.title?.romaji,
         english: anilistMedia.title?.english,
@@ -1692,34 +1695,43 @@ export class AniListCrawlService {
       isReviewBlocked: anilistMedia.isReviewBlocked || undefined,
       notes: anilistMedia.modNotes || undefined,
       metadata: {
-        coverImage: anilistMedia.coverImage,
-        bannerImage: anilistMedia.bannerImage,
-        genres: anilistMedia.genres,
-        tags: anilistMedia.tags
-          ? anilistMedia.tags.map((tag) => ({
-              id: tag.id,
-              name: tag.name,
-              description: tag.description,
-              category: tag.category,
-              rank: tag.rank,
-              isGeneralSpoiler: tag.isGeneralSpoiler,
-              isMediaSpoiler: tag.isMediaSpoiler,
-              isAdult: tag.isAdult,
-            }))
-          : undefined,
-        externalLinks: anilistMedia.externalLinks
-          ? anilistMedia.externalLinks.map((link) => ({
-              id: link.id,
-              site: link.site,
-              url: link.url,
-              type: link.type,
-              language: link.language,
-              color: link.color,
-              icon: link.icon,
-              notes: link.notes,
-              isDisabled: link.isDisabled,
-            }))
-          : undefined,
+        coverImage:
+          anilistMedia.coverImage &&
+          Object.keys(anilistMedia.coverImage).length > 0
+            ? anilistMedia.coverImage
+            : undefined,
+        bannerImage: anilistMedia.bannerImage || undefined,
+        genres:
+          anilistMedia.genres && anilistMedia.genres.length > 0
+            ? anilistMedia.genres
+            : undefined,
+        tags:
+          anilistMedia.tags && anilistMedia.tags.length > 0
+            ? anilistMedia.tags.map((tag) => ({
+                id: tag.id,
+                name: tag.name,
+                description: tag.description,
+                category: tag.category,
+                rank: tag.rank,
+                isGeneralSpoiler: tag.isGeneralSpoiler,
+                isMediaSpoiler: tag.isMediaSpoiler,
+                isAdult: tag.isAdult,
+              }))
+            : undefined,
+        externalLinks:
+          anilistMedia.externalLinks && anilistMedia.externalLinks.length > 0
+            ? anilistMedia.externalLinks.map((link) => ({
+                id: link.id,
+                site: link.site,
+                url: link.url,
+                type: link.type,
+                language: link.language || undefined,
+                color: link.color || undefined,
+                icon: link.icon || undefined,
+                notes: link.notes || undefined,
+                isDisabled: link.isDisabled,
+              }))
+            : undefined,
         siteUrl: anilistMedia.siteUrl,
         updatedAt: anilistMedia.updatedAt
           ? new Date(anilistMedia.updatedAt * 1000).toISOString()
@@ -1745,136 +1757,158 @@ export class AniListCrawlService {
               mediaId: anilistMedia.nextAiringEpisode.mediaId,
             }
           : undefined,
-        studios: anilistMedia.studios?.edges
-          ? anilistMedia.studios.edges.map((edge) => ({
-              id: edge.node.id,
-              name: edge.node.name,
-              isMain: edge.isMain,
-              isAnimationStudio: edge.node.isAnimationStudio,
-              siteUrl: edge.node.siteUrl,
-              favourites: edge.node.favourites,
-            }))
-          : undefined,
-        staff: anilistMedia.staff?.edges
-          ? anilistMedia.staff.edges.map((edge) => ({
-              id: edge.node.id,
-              role: edge.role,
-              name: edge.node.name,
-              language: edge.node.language,
-              image: edge.node.image,
-              description: edge.node.description,
-              primaryOccupations: edge.node.primaryOccupations,
-              gender: edge.node.gender,
-              dateOfBirth: edge.node.dateOfBirth,
-              dateOfDeath: edge.node.dateOfDeath,
-              age: edge.node.age,
-              yearsActive: edge.node.yearsActive,
-              homeTown: edge.node.homeTown,
-              siteUrl: edge.node.siteUrl,
-              favourites: edge.node.favourites,
-            }))
-          : undefined,
-        characters: anilistMedia.characters?.edges
-          ? anilistMedia.characters.edges.map((edge) => ({
-              id: edge.node.id,
-              role: edge.role,
-              name: edge.name,
-              characterName: edge.node.name,
-              image: edge.node.image,
-              description: edge.node.description,
-              gender: edge.node.gender,
-              dateOfBirth: edge.node.dateOfBirth,
-              age: edge.node.age,
-              bloodType: edge.node.bloodType,
-              siteUrl: edge.node.siteUrl,
-              favourites: edge.node.favourites,
-              modNotes: edge.node.modNotes,
-              voiceActors: edge.voiceActors
-                ? edge.voiceActors.map((va) => ({
-                    id: va.id,
-                    name: va.name,
-                    language: va.language,
-                    image: va.image,
-                  }))
-                : undefined,
-            }))
-          : undefined,
-        relations: anilistMedia.relations?.edges
-          ? anilistMedia.relations.edges.map((edge) => ({
-              id: edge.node.id,
-              relationType: edge.relationType,
-              mediaId: edge.node.id,
-              type: edge.node.type,
-              title: edge.node.title,
-              format: edge.node.format,
-              status: edge.node.status,
-              coverImage: edge.node.coverImage,
-            }))
-          : undefined,
-        recommendations: anilistMedia.recommendations?.edges
-          ? anilistMedia.recommendations.edges.map((edge) => ({
-              id: edge.node.id,
-              rating: edge.node.rating,
-              userRating: edge.node.userRating,
-              mediaRecommendation: edge.node.mediaRecommendation
-                ? {
-                    id: edge.node.mediaRecommendation.id,
-                    type: edge.node.mediaRecommendation.type,
-                    title: edge.node.mediaRecommendation.title,
-                    format: edge.node.mediaRecommendation.format,
-                    status: edge.node.mediaRecommendation.status,
-                    coverImage: edge.node.mediaRecommendation.coverImage,
-                  }
-                : undefined,
-              user: edge.node.user
-                ? {
-                    id: edge.node.user.id,
-                    name: edge.node.user.name,
-                  }
-                : undefined,
-            }))
-          : undefined,
+        studios:
+          anilistMedia.studios &&
+          anilistMedia.studios.edges &&
+          anilistMedia.studios.edges.length > 0
+            ? anilistMedia.studios.edges.map((edge) => ({
+                id: edge.node.id,
+                name: edge.node.name,
+                isMain: edge.isMain,
+                isAnimationStudio: edge.node.isAnimationStudio,
+                siteUrl: edge.node.siteUrl,
+                favourites: edge.node.favourites,
+              }))
+            : undefined,
+        staff:
+          anilistMedia.staff?.edges && anilistMedia.staff.edges.length > 0
+            ? anilistMedia.staff.edges.map((edge) => ({
+                id: edge.node.id,
+                role: edge.role,
+                name: edge.node.name,
+                language: edge.node.language,
+                image: edge.node.image,
+                description: edge.node.description,
+                primaryOccupations: edge.node.primaryOccupations,
+                gender: edge.node.gender,
+                dateOfBirth: edge.node.dateOfBirth,
+                dateOfDeath: edge.node.dateOfDeath,
+                age: edge.node.age,
+                yearsActive: edge.node.yearsActive,
+                homeTown: edge.node.homeTown,
+                siteUrl: edge.node.siteUrl,
+                favourites: edge.node.favourites,
+              }))
+            : undefined,
+        characters:
+          anilistMedia.characters?.edges &&
+          anilistMedia.characters.edges.length > 0
+            ? anilistMedia.characters.edges.map((edge) => ({
+                id: edge.node.id,
+                role: edge.role,
+                name: edge.name || undefined,
+                characterName: edge.node.name,
+                image: edge.node.image,
+                description: edge.node.description,
+                gender: edge.node.gender,
+                dateOfBirth: edge.node.dateOfBirth,
+                age: edge.node.age,
+                bloodType: edge.node.bloodType,
+                siteUrl: edge.node.siteUrl,
+                favourites: edge.node.favourites,
+                modNotes: edge.node.modNotes,
+                voiceActors:
+                  edge.voiceActors && edge.voiceActors.length > 0
+                    ? edge.voiceActors.map((va) => ({
+                        id: va.id,
+                        name: va.name,
+                        language: va.language,
+                        image: va.image,
+                      }))
+                    : undefined,
+              }))
+            : undefined,
+        relations:
+          anilistMedia.relations?.edges &&
+          anilistMedia.relations.edges.length > 0
+            ? anilistMedia.relations.edges.map((edge) => ({
+                id: edge.node.id,
+                relationType: edge.relationType,
+                mediaId: edge.node.id,
+                type: edge.node.type,
+                title: edge.node.title,
+                format: edge.node.format,
+                status: edge.node.status,
+                coverImage: edge.node.coverImage,
+              }))
+            : undefined,
+        recommendations:
+          anilistMedia.recommendations?.edges &&
+          anilistMedia.recommendations.edges.length > 0
+            ? anilistMedia.recommendations.edges.map((edge) => ({
+                id: edge.node.id,
+                rating: edge.node.rating,
+                userRating: edge.node.userRating,
+                mediaRecommendation: edge.node.mediaRecommendation
+                  ? {
+                      id: edge.node.mediaRecommendation.id,
+                      type: edge.node.mediaRecommendation.type,
+                      title: edge.node.mediaRecommendation.title,
+                      format: edge.node.mediaRecommendation.format,
+                      status: edge.node.mediaRecommendation.status,
+                      coverImage: edge.node.mediaRecommendation.coverImage,
+                    }
+                  : undefined,
+                user: edge.node.user
+                  ? {
+                      id: edge.node.user.id,
+                      name: edge.node.user.name,
+                    }
+                  : undefined,
+              }))
+            : undefined,
         stats: anilistMedia.stats
           ? {
-              scoreDistribution: anilistMedia.stats.scoreDistribution,
-              statusDistribution: anilistMedia.stats.statusDistribution,
+              scoreDistribution:
+                anilistMedia.stats.scoreDistribution &&
+                anilistMedia.stats.scoreDistribution.length > 0
+                  ? anilistMedia.stats.scoreDistribution
+                  : undefined,
+              statusDistribution:
+                anilistMedia.stats.statusDistribution &&
+                anilistMedia.stats.statusDistribution.length > 0
+                  ? anilistMedia.stats.statusDistribution
+                  : undefined,
             }
           : undefined,
-        rankings: anilistMedia.rankings
-          ? anilistMedia.rankings.map((ranking) => ({
-              id: ranking.id,
-              rank: ranking.rank,
-              type: ranking.type,
-              format: ranking.format,
-              year: ranking.year,
-              season: ranking.season,
-              allTime: ranking.allTime,
-              context: ranking.context,
-            }))
-          : undefined,
+        rankings:
+          anilistMedia.rankings && anilistMedia.rankings.length > 0
+            ? anilistMedia.rankings.map((ranking) => ({
+                id: ranking.id,
+                rank: ranking.rank,
+                type: ranking.type,
+                format: ranking.format,
+                year: ranking.year,
+                season: ranking.season,
+                allTime: ranking.allTime,
+                context: ranking.context,
+              }))
+            : undefined,
         reviews: anilistMedia.reviews
           ? {
-              nodes: anilistMedia.reviews.nodes
-                ? anilistMedia.reviews.nodes.map((review) => ({
-                    id: review.id,
-                    summary: review.summary,
-                    body: review.body,
-                    rating: review.rating,
-                    ratingAmount: review.ratingAmount,
-                    user: review.user
-                      ? {
-                          id: review.user.id,
-                          name: review.user.name,
-                        }
-                      : undefined,
-                    createdAt: review.createdAt
-                      ? new Date(review.createdAt * 1000).toISOString()
-                      : undefined,
-                    updatedAt: review.updatedAt
-                      ? new Date(review.updatedAt * 1000).toISOString()
-                      : undefined,
-                  }))
-                : undefined,
+              nodes:
+                anilistMedia.reviews.nodes &&
+                anilistMedia.reviews.nodes.length > 0
+                  ? anilistMedia.reviews.nodes.map((review) => ({
+                      id: review.id,
+                      summary: review.summary,
+                      body: review.body,
+                      rating: review.rating,
+                      ratingAmount: review.ratingAmount,
+                      user: review.user
+                        ? {
+                            id: review.user.id,
+                            name: review.user.name,
+                          }
+                        : undefined,
+                      createdAt: review.createdAt
+                        ? new Date(review.createdAt * 1000).toISOString()
+                        : undefined,
+                      updatedAt: review.updatedAt
+                        ? new Date(review.updatedAt * 1000).toISOString()
+                        : undefined,
+                    }))
+                  : undefined,
               pageInfo: anilistMedia.reviews.pageInfo,
             }
           : undefined,
@@ -1907,9 +1941,9 @@ export class AniListCrawlService {
                 : undefined,
             }
           : undefined,
-        hashtag: anilistMedia.hashtag,
-        isFavourite: anilistMedia.isFavourite,
-        isFavouriteBlocked: anilistMedia.isFavouriteBlocked,
+        hashtag: anilistMedia.hashtag || undefined,
+        isFavourite: anilistMedia.isFavourite || false,
+        isFavouriteBlocked: anilistMedia.isFavouriteBlocked || false,
       },
     };
 
