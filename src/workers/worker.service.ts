@@ -816,9 +816,7 @@ export class WorkerService {
    * Process series save job
    * Fetches media data from AniList API and saves it to database as Series entity
    */
-  async processSeriesSave(
-    job: SeriesSaveJob,
-  ): Promise<SeriesSaveJobResult> {
+  async processSeriesSave(job: SeriesSaveJob): Promise<SeriesSaveJobResult> {
     const startTime = Date.now();
     this.logger.log(
       `Processing series save job: ${job.jobId} (AniList ID: ${job.aniListId})`,
@@ -831,9 +829,7 @@ export class WorkerService {
       );
 
       if (!anilistMedia) {
-        throw new Error(
-          `Media with AniList ID ${job.aniListId} not found`,
-        );
+        throw new Error(`Media with AniList ID ${job.aniListId} not found`);
       }
 
       // Process and save series from AniList media data

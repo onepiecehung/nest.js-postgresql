@@ -4,10 +4,20 @@ import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { firstValueFrom } from 'rxjs';
-import { generateJobId } from 'src/common/utils';
-import { JOB_NAME, SERIES_CONSTANTS } from 'src/shared/constants';
+import { Author, AuthorSeries } from 'src/authors/entities';
+import { Character } from 'src/characters/entities/character.entity';
+import { createSlug, generateJobId } from 'src/common/utils';
+import {
+  JOB_NAME,
+  SERIES_CONSTANTS,
+  STUDIO_CONSTANTS,
+} from 'src/shared/constants';
 import { CacheService, RabbitMQService } from 'src/shared/services';
-import { Repository } from 'typeorm';
+import { Staff, StaffSeries } from 'src/staffs/entities';
+import { Studio, StudioSeries } from 'src/studios/entities';
+import { Tag } from 'src/tags/entities/tag.entity';
+import { DataSource, EntityManager, Repository } from 'typeorm';
+import { Genre, SeriesGenre } from '../entities';
 import { Series } from '../entities/series.entity';
 import {
   AniListExternalLink,
@@ -54,8 +64,29 @@ export class AniListCrawlService {
   constructor(
     @InjectRepository(Series)
     private readonly seriesRepository: Repository<Series>,
+    @InjectRepository(Genre)
+    private readonly genreRepository: Repository<Genre>,
+    @InjectRepository(SeriesGenre)
+    private readonly seriesGenreRepository: Repository<SeriesGenre>,
+    @InjectRepository(Tag)
+    private readonly tagRepository: Repository<Tag>,
+    @InjectRepository(Character)
+    private readonly characterRepository: Repository<Character>,
+    @InjectRepository(Staff)
+    private readonly staffRepository: Repository<Staff>,
+    @InjectRepository(StaffSeries)
+    private readonly staffSeriesRepository: Repository<StaffSeries>,
+    @InjectRepository(Studio)
+    private readonly studioRepository: Repository<Studio>,
+    @InjectRepository(StudioSeries)
+    private readonly studioSeriesRepository: Repository<StudioSeries>,
+    @InjectRepository(Author)
+    private readonly authorRepository: Repository<Author>,
+    @InjectRepository(AuthorSeries)
+    private readonly authorSeriesRepository: Repository<AuthorSeries>,
     private readonly httpService: HttpService,
     private readonly configService: ConfigService,
+    private readonly dataSource: DataSource,
     private readonly cacheService?: CacheService,
     private readonly rabbitMQService?: RabbitMQService,
   ) {
@@ -1018,8 +1049,11 @@ export class AniListCrawlService {
       // Map AniList media data to Series entity format
       const seriesData = this.mapAniListMediaToSeries(anilistMedia);
 
-      // Save or update the series in the database
-      const savedSeries = await this.saveOrUpdateSeries(seriesData);
+      // Save or update the series in the database with all relations
+      const savedSeries = await this.saveOrUpdateSeries(
+        seriesData,
+        anilistMedia,
+      );
 
       this.logger.log(
         `Successfully processed and saved series: ${savedSeries.id} (AniList ID: ${anilistMedia.id})`,
@@ -1537,27 +1571,366 @@ export class AniListCrawlService {
    * @param seriesData - Series data to save
    * @returns Saved series entity
    */
+  /**
+   * Save or update a series in the database with all related entities
+   *
+   * This method handles:
+   * - Series entity creation/update
+   * - Genres (SeriesGenre junction table)
+   * - Tags (ManyToMany relationship)
+   * - Characters (OneToMany relationship)
+   * - Staff (StaffSeries junction table)
+   * - Studios (StudioSeries junction table)
+   * - Authors (AuthorSeries junction table)
+   *
+   * @param seriesData - Series data to save
+   * @param anilistMedia - Original AniList media data for relations
+   * @returns Promise with the saved Series entity
+   */
   private async saveOrUpdateSeries(
     seriesData: Partial<Series>,
+    anilistMedia: AniListMedia,
   ): Promise<Series> {
     if (!seriesData.aniListId) {
       throw new Error('aniListId is required to save series');
     }
 
-    // Find existing series by aniListId
-    const existingSeries = await this.seriesRepository.findOne({
-      where: { aniListId: seriesData.aniListId },
-    });
+    // Use transaction to ensure data consistency
+    return await this.dataSource.transaction(async (manager) => {
+      // Find existing series by aniListId
+      const existingSeries = await manager.findOne(Series, {
+        where: { aniListId: seriesData.aniListId },
+      });
 
-    if (existingSeries) {
-      // Update existing series
-      Object.assign(existingSeries, seriesData);
-      return await this.seriesRepository.save(existingSeries);
-    } else {
-      // Create new series
-      const newSeries = this.seriesRepository.create(seriesData);
-      return await this.seriesRepository.save(newSeries);
+      let savedSeries: Series;
+
+      if (existingSeries) {
+        // Update existing series
+        Object.assign(existingSeries, seriesData);
+        savedSeries = await manager.save(Series, existingSeries);
+      } else {
+        // Create new series
+        const newSeries = manager.create(Series, seriesData);
+        savedSeries = await manager.save(Series, newSeries);
+      }
+
+      // Process all relations
+      await this.processSeriesGenres(manager, savedSeries, anilistMedia);
+      await this.processSeriesTags(manager, savedSeries, anilistMedia);
+      await this.processSeriesCharacters(manager, savedSeries, anilistMedia);
+      await this.processSeriesStaff(manager, savedSeries, anilistMedia);
+      await this.processSeriesStudios(manager, savedSeries, anilistMedia);
+      await this.processSeriesAuthors(manager, savedSeries, anilistMedia);
+
+      return savedSeries;
+    });
+  }
+
+  /**
+   * Process and save genres for a series
+   * Creates genres if they don't exist and links them via SeriesGenre junction table
+   */
+  private async processSeriesGenres(
+    manager: EntityManager,
+    series: Series,
+    anilistMedia: AniListMedia,
+  ): Promise<void> {
+    if (!anilistMedia.genres || anilistMedia.genres.length === 0) {
+      return;
     }
+
+    // Remove existing genre relations for this series
+    await manager.delete(SeriesGenre, { seriesId: series.id });
+
+    // Process each genre
+    for (let index = 0; index < anilistMedia.genres.length; index++) {
+      const genreName = anilistMedia.genres[index];
+      if (!genreName) continue;
+
+      // Find or create genre
+      let genre = await manager.findOne(Genre, {
+        where: { slug: createSlug(genreName) },
+      });
+
+      if (!genre) {
+        genre = manager.create(Genre, {
+          slug: createSlug(genreName),
+          name: genreName,
+          sortOrder: index,
+        });
+        genre = await manager.save(Genre, genre);
+      }
+
+      // Create SeriesGenre relation
+      const seriesGenre = manager.create(SeriesGenre, {
+        seriesId: series.id,
+        genreId: genre.id,
+        sortOrder: index,
+        isPrimary: index === 0, // First genre is primary
+      });
+      await manager.save(SeriesGenre, seriesGenre);
+    }
+  }
+
+  /**
+   * Process and save tags for a series
+   * Creates tags if they don't exist and links them via ManyToMany relationship
+   */
+  private async processSeriesTags(
+    manager: EntityManager,
+    series: Series,
+    anilistMedia: AniListMedia,
+  ): Promise<void> {
+    if (!anilistMedia.tags || anilistMedia.tags.length === 0) {
+      return;
+    }
+
+    const tags: Tag[] = [];
+
+    // Process each tag
+    for (const anilistTag of anilistMedia.tags) {
+      if (!anilistTag.name) continue;
+
+      // Find or create tag
+      let tag = await manager.findOne(Tag, {
+        where: { slug: createSlug(anilistTag.name) },
+      });
+
+      if (!tag) {
+        tag = manager.create(Tag, {
+          slug: createSlug(anilistTag.name),
+          name: anilistTag.name,
+          description: anilistTag.description || undefined,
+          isActive: true,
+        });
+        tag = await manager.save(Tag, tag);
+      }
+
+      tags.push(tag);
+    }
+
+    // Update series tags relationship
+    series.tags = tags;
+    await manager.save(Series, series);
+  }
+
+  /**
+   * Process and save characters for a series
+   * Creates characters if they don't exist and links them to the series
+   */
+  private async processSeriesCharacters(
+    manager: EntityManager,
+    series: Series,
+    anilistMedia: AniListMedia,
+  ): Promise<void> {
+    if (
+      !anilistMedia.characters?.edges ||
+      anilistMedia.characters.edges.length === 0
+    ) {
+      return;
+    }
+
+    // Process each character
+    for (const edge of anilistMedia.characters.edges) {
+      if (!edge.node) continue;
+
+      const characterNode = edge.node;
+
+      // Find or create character by aniListId
+      let character = await manager.findOne(Character, {
+        where: { aniListId: characterNode.id.toString() },
+      });
+
+      const characterData: Partial<Character> = {
+        aniListId: characterNode.id.toString(),
+        name: characterNode.name
+          ? {
+              first: characterNode.name.first,
+              middle: characterNode.name.middle,
+              last: characterNode.name.last,
+              full: characterNode.name.full,
+              native: characterNode.name.native,
+              alternative: characterNode.name.alternative,
+              userPreferred: characterNode.name.userPreferred,
+            }
+          : undefined,
+        description: characterNode.description || undefined,
+        gender: characterNode.gender || undefined,
+        dateOfBirth: characterNode.dateOfBirth
+          ? this.fuzzyDateToDate(characterNode.dateOfBirth)
+          : undefined,
+        age: characterNode.age || undefined,
+        bloodType: characterNode.bloodType || undefined,
+        siteUrl: characterNode.siteUrl || undefined,
+        notes: characterNode.modNotes || undefined,
+        seriesId: series.id,
+      };
+
+      if (character) {
+        // Update existing character
+        Object.assign(character, characterData);
+        character = await manager.save(Character, character);
+      } else {
+        // Create new character
+        character = manager.create(Character, characterData);
+        character = await manager.save(Character, character);
+      }
+    }
+  }
+
+  /**
+   * Process and save staff for a series
+   * Creates staff if they don't exist and links them via StaffSeries junction table
+   */
+  private async processSeriesStaff(
+    manager: EntityManager,
+    series: Series,
+    anilistMedia: AniListMedia,
+  ): Promise<void> {
+    if (!anilistMedia.staff?.edges || anilistMedia.staff.edges.length === 0) {
+      return;
+    }
+
+    // Remove existing staff relations for this series
+    await manager.delete(StaffSeries, { seriesId: series.id });
+
+    // Process each staff member
+    for (let index = 0; index < anilistMedia.staff.edges.length; index++) {
+      const edge = anilistMedia.staff.edges[index];
+      if (!edge.node) continue;
+
+      const staffNode = edge.node;
+
+      // Find or create staff by aniListId
+      let staff = await manager.findOne(Staff, {
+        where: { aniListId: staffNode.id.toString() },
+      });
+
+      const staffData: Partial<Staff> = {
+        aniListId: staffNode.id.toString(),
+        name: staffNode.name
+          ? {
+              first: staffNode.name.first,
+              middle: staffNode.name.middle,
+              last: staffNode.name.last,
+              full: staffNode.name.full,
+              native: staffNode.name.native,
+              alternative: staffNode.name.alternative,
+              userPreferred: staffNode.name.userPreferred,
+            }
+          : undefined,
+        language: staffNode.language || undefined,
+        description: staffNode.description || undefined,
+        primaryOccupations: staffNode.primaryOccupations || undefined,
+        gender: staffNode.gender || undefined,
+        dateOfBirth: staffNode.dateOfBirth
+          ? this.fuzzyDateToDate(staffNode.dateOfBirth)
+          : undefined,
+        dateOfDeath: staffNode.dateOfDeath
+          ? this.fuzzyDateToDate(staffNode.dateOfDeath)
+          : undefined,
+        age: staffNode.age || undefined,
+        homeTown: staffNode.homeTown || undefined,
+        siteUrl: staffNode.siteUrl || undefined,
+      };
+
+      if (staff) {
+        // Update existing staff
+        Object.assign(staff, staffData);
+        staff = await manager.save(Staff, staff);
+      } else {
+        // Create new staff
+        staff = manager.create(Staff, staffData);
+        staff = await manager.save(Staff, staff);
+      }
+
+      // Create StaffSeries relation
+      const staffSeries = manager.create(StaffSeries, {
+        staffId: staff.id,
+        seriesId: series.id,
+        role: edge.role || undefined,
+        isMain: index === 0, // First staff is main
+        sortOrder: index,
+      });
+      await manager.save(StaffSeries, staffSeries);
+    }
+  }
+
+  /**
+   * Process and save studios for a series
+   * Creates studios if they don't exist and links them via StudioSeries junction table
+   */
+  private async processSeriesStudios(
+    manager: EntityManager,
+    series: Series,
+    anilistMedia: AniListMedia,
+  ): Promise<void> {
+    if (
+      !anilistMedia.studios?.edges ||
+      anilistMedia.studios.edges.length === 0
+    ) {
+      return;
+    }
+
+    // Remove existing studio relations for this series
+    await manager.delete(StudioSeries, { seriesId: series.id });
+
+    // Process each studio
+    for (let index = 0; index < anilistMedia.studios.edges.length; index++) {
+      const edge = anilistMedia.studios.edges[index];
+      if (!edge.node) continue;
+
+      const studioNode = edge.node;
+
+      // Find or create studio by aniListId
+      let studio = await manager.findOne(Studio, {
+        where: { aniListId: studioNode.id.toString() },
+      });
+
+      const studioData: Partial<Studio> = {
+        aniListId: studioNode.id.toString(),
+        name: studioNode.name,
+        type: studioNode.isAnimationStudio
+          ? STUDIO_CONSTANTS.TYPES.ANIMATION_STUDIO
+          : STUDIO_CONSTANTS.TYPES.PRODUCTION_COMPANY,
+        siteUrl: studioNode.siteUrl || undefined,
+      };
+
+      if (studio) {
+        // Update existing studio
+        Object.assign(studio, studioData);
+        studio = await manager.save(Studio, studio);
+      } else {
+        // Create new studio
+        studio = manager.create(Studio, studioData);
+        studio = await manager.save(Studio, studio);
+      }
+
+      // Create StudioSeries relation
+      const studioSeries = manager.create(StudioSeries, {
+        studioId: studio.id,
+        seriesId: series.id,
+        isMain: edge.isMain || false,
+        sortOrder: index,
+      });
+      await manager.save(StudioSeries, studioSeries);
+    }
+  }
+
+  /**
+   * Process and save authors for a series
+   * Creates authors if they don't exist and links them via AuthorSeries junction table
+   * Note: AniList API doesn't provide authors directly in media, so this is a placeholder
+   */
+  private async processSeriesAuthors(
+    _manager: EntityManager,
+    _series: Series,
+    _anilistMedia: AniListMedia,
+  ): Promise<void> {
+    // AniList API doesn't provide authors in media object
+    // This is a placeholder for future implementation
+    // Authors might be extracted from metadata or fetched separately
+    return;
   }
 
   /**
