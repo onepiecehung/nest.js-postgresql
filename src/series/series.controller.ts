@@ -69,6 +69,15 @@ export class SeriesController {
     return this.anilistCrawlService.getMediaById(id);
   }
 
+  @Get('anilist/:anilistId/save')
+  async saveAniListMediaById(@Param('anilistId') anilistId: string) {
+    const id = parseInt(anilistId, 10);
+    if (isNaN(id)) {
+      throw new BadRequestException('Invalid AniList ID. Must be a number.');
+    }
+    return this.anilistCrawlService.fetchAndSaveMediaById(id);
+  }
+
   /**
    * Get a series by ID
    */

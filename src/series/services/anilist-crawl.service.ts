@@ -4,8 +4,9 @@ import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { firstValueFrom } from 'rxjs';
-import { SERIES_CONSTANTS } from 'src/shared/constants';
-import { CacheService } from 'src/shared/services';
+import { generateJobId } from 'src/common/utils';
+import { JOB_NAME, SERIES_CONSTANTS } from 'src/shared/constants';
+import { CacheService, RabbitMQService } from 'src/shared/services';
 import { Repository } from 'typeorm';
 import { Series } from '../entities/series.entity';
 import {
@@ -23,6 +24,7 @@ import {
   AniListStreamingEpisode,
   AniListTokenResponse,
 } from './anilist.types';
+import { SeriesCrawlJob, SeriesSaveJob } from './series-queue.interface';
 
 /**
  * Service for crawling media data from AniList API
@@ -43,12 +45,19 @@ export class AniListCrawlService {
   private readonly REFRESH_TOKEN_CACHE_KEY = 'anilist:refresh_token';
   private oauthConfig: AniListOAuthConfig | null = null;
 
+  // Rate limiting tracking
+  private rateLimitLimit: number = 90; // Default: 90 requests per minute (currently degraded to 30)
+  private rateLimitRemaining: number = 90;
+  private rateLimitReset: number = 0; // Unix timestamp
+  private lastRequestTime: number = 0;
+
   constructor(
     @InjectRepository(Series)
     private readonly seriesRepository: Repository<Series>,
     private readonly httpService: HttpService,
     private readonly configService: ConfigService,
     private readonly cacheService?: CacheService,
+    private readonly rabbitMQService?: RabbitMQService,
   ) {
     // Initialize OAuth config if credentials are available
     const oauth = this.configService.get<AniListOAuthConfig>('oauth.anilist');
@@ -603,10 +612,92 @@ export class AniListCrawlService {
    * @param type - Media type (ANIME or MANGA)
    * @returns Promise with AniList page data
    */
+  /**
+   * Handle rate limiting based on API response headers
+   * Waits if necessary to respect rate limits
+   */
+  private async handleRateLimit(headers: Record<string, any>): Promise<void> {
+    // Update rate limit info from headers
+    if (headers['x-ratelimit-limit']) {
+      this.rateLimitLimit = parseInt(
+        headers['x-ratelimit-limit'] as string,
+        10,
+      );
+    }
+    if (headers['x-ratelimit-remaining']) {
+      this.rateLimitRemaining = parseInt(
+        headers['x-ratelimit-remaining'] as string,
+        10,
+      );
+    }
+    if (headers['x-ratelimit-reset']) {
+      this.rateLimitReset = parseInt(
+        headers['x-ratelimit-reset'] as string,
+        10,
+      );
+    }
+
+    // Calculate delay based on remaining requests
+    // If remaining is low, add delay to avoid hitting limit
+    const now = Date.now();
+    const timeSinceLastRequest = now - this.lastRequestTime;
+
+    // Calculate minimum delay between requests to stay within rate limit
+    // Rate limit is per minute, so delay = 60000ms / rateLimitLimit
+    const minDelayBetweenRequests = Math.ceil(60000 / this.rateLimitLimit);
+
+    // If we have few requests remaining, increase delay
+    const remainingPercentage = this.rateLimitRemaining / this.rateLimitLimit;
+    let delay = minDelayBetweenRequests;
+
+    if (remainingPercentage < 0.2) {
+      // Less than 20% remaining, wait longer
+      delay = minDelayBetweenRequests * 3;
+    } else if (remainingPercentage < 0.5) {
+      // Less than 50% remaining, wait a bit longer
+      delay = minDelayBetweenRequests * 2;
+    }
+
+    // Wait if needed
+    if (timeSinceLastRequest < delay) {
+      const waitTime = delay - timeSinceLastRequest;
+      this.logger.debug(
+        `Rate limit: ${this.rateLimitRemaining}/${this.rateLimitLimit} remaining. Waiting ${waitTime}ms`,
+      );
+      await new Promise((resolve) => setTimeout(resolve, waitTime));
+    }
+
+    this.lastRequestTime = Date.now();
+  }
+
+  /**
+   * Handle 429 rate limit error with retry logic
+   */
+  private async handleRateLimitError(
+    retryAfter?: number,
+    rateLimitReset?: number,
+  ): Promise<void> {
+    let waitTime = 60000; // Default: wait 1 minute
+
+    if (retryAfter) {
+      waitTime = retryAfter * 1000; // Convert seconds to milliseconds
+    } else if (rateLimitReset) {
+      const now = Math.floor(Date.now() / 1000);
+      waitTime = (rateLimitReset - now) * 1000;
+      if (waitTime < 0) waitTime = 60000; // Fallback to 1 minute
+    }
+
+    this.logger.warn(
+      `Rate limit exceeded. Waiting ${waitTime / 1000} seconds before retry...`,
+    );
+    await new Promise((resolve) => setTimeout(resolve, waitTime));
+  }
+
   private async fetchMediaFromAniList(
     page: number = 1,
     perPage: number = this.PER_PAGE,
     type: 'ANIME' | 'MANGA' = 'ANIME',
+    retryCount: number = 0,
   ): Promise<AniListPage> {
     const query = this.getMediaQuery();
     const variables = {
@@ -633,13 +724,41 @@ export class AniListCrawlService {
         ),
       );
 
+      // Handle rate limiting from response headers
+      if (response.headers) {
+        await this.handleRateLimit(response.headers);
+      }
+
       // HttpService returns { data: {...}, status: 200, ... }
       const responseData = response.data;
 
       // Handle GraphQL response structure
       if (responseData.errors && responseData.errors.length > 0) {
+        // Check for rate limit error (429)
+        const rateLimitError = responseData.errors.find(
+          (e: { status?: number; message?: string }) => e.status === 429,
+        );
+        if (rateLimitError && retryCount < 3) {
+          // Get retry-after from response headers if available
+          const retryAfter = response.headers?.['retry-after']
+            ? parseInt(String(response.headers['retry-after']), 10)
+            : undefined;
+          const rateLimitReset = response.headers?.['x-ratelimit-reset']
+            ? parseInt(String(response.headers['x-ratelimit-reset']), 10)
+            : undefined;
+
+          await this.handleRateLimitError(retryAfter, rateLimitReset);
+          // Retry the request
+          return this.fetchMediaFromAniList(
+            page,
+            perPage,
+            type,
+            retryCount + 1,
+          );
+        }
+
         const errorMessages = responseData.errors
-          .map((e) => e.message)
+          .map((e: { message?: string }) => e.message || 'Unknown error')
           .join(', ');
         throw new Error(`AniList API errors: ${errorMessages}`);
       }
@@ -650,6 +769,45 @@ export class AniListCrawlService {
 
       return responseData.data;
     } catch (error: unknown) {
+      // Handle HTTP 429 errors
+      if (
+        error &&
+        typeof error === 'object' &&
+        'response' in error &&
+        error.response &&
+        typeof error.response === 'object' &&
+        'status' in error.response &&
+        error.response.status === 429 &&
+        retryCount < 3
+      ) {
+        const response = error.response as {
+          status: number;
+          headers?: Record<string, string | string[] | undefined>;
+        };
+        const retryAfterHeader = response.headers?.['retry-after'];
+        const retryAfter = retryAfterHeader
+          ? parseInt(
+              Array.isArray(retryAfterHeader)
+                ? retryAfterHeader[0]
+                : retryAfterHeader,
+              10,
+            )
+          : undefined;
+        const rateLimitResetHeader = response.headers?.['x-ratelimit-reset'];
+        const rateLimitReset = rateLimitResetHeader
+          ? parseInt(
+              Array.isArray(rateLimitResetHeader)
+                ? rateLimitResetHeader[0]
+                : rateLimitResetHeader,
+              10,
+            )
+          : undefined;
+
+        await this.handleRateLimitError(retryAfter, rateLimitReset);
+        // Retry the request
+        return this.fetchMediaFromAniList(page, perPage, type, retryCount + 1);
+      }
+
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown error';
       this.logger.error(
@@ -680,7 +838,10 @@ export class AniListCrawlService {
    * @param id - AniList media ID
    * @returns Promise with AniList media data or null if not found
    */
-  async getMediaById(id: number): Promise<AniListMedia | null> {
+  async getMediaById(
+    id: number,
+    retryCount: number = 0,
+  ): Promise<AniListMedia | null> {
     const query = this.getMediaByIdQuery();
     const variables = {
       id,
@@ -704,13 +865,35 @@ export class AniListCrawlService {
         ),
       );
 
+      // Handle rate limiting from response headers
+      if (response.headers) {
+        await this.handleRateLimit(response.headers);
+      }
+
       // HttpService returns { data: {...}, status: 200, ... }
       const responseData = response.data;
 
       // Handle GraphQL response structure
       if (responseData.errors && responseData.errors.length > 0) {
+        // Check for rate limit error (429)
+        const rateLimitError = responseData.errors.find(
+          (e: { status?: number; message?: string }) => e.status === 429,
+        );
+        if (rateLimitError && retryCount < 3) {
+          const retryAfter = response.headers?.['retry-after']
+            ? parseInt(String(response.headers['retry-after']), 10)
+            : undefined;
+          const rateLimitReset = response.headers?.['x-ratelimit-reset']
+            ? parseInt(String(response.headers['x-ratelimit-reset']), 10)
+            : undefined;
+
+          await this.handleRateLimitError(retryAfter, rateLimitReset);
+          // Retry the request
+          return this.getMediaById(id, retryCount + 1);
+        }
+
         const errorMessages = responseData.errors
-          .map((e) => e.message)
+          .map((e: { message?: string }) => e.message || 'Unknown error')
           .join(', ');
         throw new Error(`AniList API errors: ${errorMessages}`);
       }
@@ -721,10 +904,133 @@ export class AniListCrawlService {
 
       return responseData.data.Media;
     } catch (error: unknown) {
+      // Handle HTTP 429 errors
+      if (
+        error &&
+        typeof error === 'object' &&
+        'response' in error &&
+        error.response &&
+        typeof error.response === 'object' &&
+        'status' in error.response &&
+        error.response.status === 429 &&
+        retryCount < 3
+      ) {
+        const response = error.response as {
+          status: number;
+          headers?: Record<string, string | string[] | undefined>;
+        };
+        const retryAfterHeader = response.headers?.['retry-after'];
+        const retryAfter = retryAfterHeader
+          ? parseInt(
+              Array.isArray(retryAfterHeader)
+                ? retryAfterHeader[0]
+                : retryAfterHeader,
+              10,
+            )
+          : undefined;
+        const rateLimitResetHeader = response.headers?.['x-ratelimit-reset'];
+        const rateLimitReset = rateLimitResetHeader
+          ? parseInt(
+              Array.isArray(rateLimitResetHeader)
+                ? rateLimitResetHeader[0]
+                : rateLimitResetHeader,
+              10,
+            )
+          : undefined;
+
+        await this.handleRateLimitError(retryAfter, rateLimitReset);
+        // Retry the request
+        return this.getMediaById(id, retryCount + 1);
+      }
+
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown error';
       this.logger.error(
         `Failed to fetch media from AniList (id: ${id}): ${errorMessage}`,
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Send AniList media ID to queue for fetching and saving
+   *
+   * This method sends the AniList media ID to RabbitMQ queue for asynchronous processing.
+   * Worker will fetch the media data from AniList API and save it to the database.
+   *
+   * @param id - AniList media ID to fetch and save
+   * @returns Promise with the job ID
+   * @throws Error if queue sending fails
+   */
+  async fetchAndSaveMediaById(id: number): Promise<string> {
+    try {
+      // Check if RabbitMQ service is available
+      if (!this.rabbitMQService) {
+        throw new Error('RabbitMQ service is not available');
+      }
+
+      // Create job with only the AniList ID
+      // Worker will fetch the data from AniList API
+      const jobId = generateJobId();
+      const job: SeriesSaveJob = {
+        jobId,
+        aniListId: id,
+        timestamp: new Date().toISOString(),
+      };
+
+      // Send job to RabbitMQ queue
+      const success = await this.rabbitMQService.sendDataToRabbitMQAsync(
+        JOB_NAME.SERIES_SAVE,
+        job as unknown,
+      );
+
+      if (!success) {
+        throw new Error(`Failed to send series save job to queue: ${jobId}`);
+      }
+
+      this.logger.log(`Series save job queued: ${jobId} (AniList ID: ${id})`);
+
+      return jobId;
+    } catch (error: unknown) {
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(
+        `Failed to queue media save job (AniList ID: ${id}): ${errorMessage}`,
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Process and save series from AniList media data
+   *
+   * This method is called by worker to process the series save job.
+   * It maps AniList media data to Series entity format and saves it to the database.
+   *
+   * @param anilistMedia - AniList media data to process
+   * @returns Promise with the saved Series entity
+   * @throws Error if mapping or saving fails
+   */
+  async processAndSaveSeriesFromAniListMedia(
+    anilistMedia: AniListMedia,
+  ): Promise<Series> {
+    try {
+      // Map AniList media data to Series entity format
+      const seriesData = this.mapAniListMediaToSeries(anilistMedia);
+
+      // Save or update the series in the database
+      const savedSeries = await this.saveOrUpdateSeries(seriesData);
+
+      this.logger.log(
+        `Successfully processed and saved series: ${savedSeries.id} (AniList ID: ${anilistMedia.id})`,
+      );
+
+      return savedSeries;
+    } catch (error: unknown) {
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(
+        `Failed to process and save series (AniList ID: ${anilistMedia.id}): ${errorMessage}`,
       );
       throw error;
     }
@@ -1255,34 +1561,89 @@ export class AniListCrawlService {
   }
 
   /**
-   * Crawl media data from AniList for a specific type
+   * Trigger crawl job for AniList media
+   *
+   * This method only sends a crawl job to RabbitMQ queue.
+   * Worker will handle the actual crawling process (fetching pages and queuing individual media save jobs).
+   *
+   * @param type - Media type to crawl (ANIME or MANGA)
+   * @param maxPages - Maximum number of pages to crawl (0 = all pages)
+   * @returns Promise with the job ID
+   * @throws Error if queue sending fails
+   */
+  async crawlAniListMedia(
+    type: 'ANIME' | 'MANGA' = 'ANIME',
+    maxPages: number = 0,
+  ): Promise<string> {
+    // Check if RabbitMQ service is available
+    if (!this.rabbitMQService) {
+      throw new Error('RabbitMQ service is not available');
+    }
+
+    // Create crawl job to send to queue
+    const jobId = generateJobId();
+    const job: SeriesCrawlJob = {
+      jobId,
+      type,
+      maxPages,
+      timestamp: new Date().toISOString(),
+    };
+
+    // Send job to RabbitMQ queue
+    const success = await this.rabbitMQService.sendDataToRabbitMQAsync(
+      JOB_NAME.SERIES_CRAWL,
+      job as unknown,
+    );
+
+    if (!success) {
+      throw new Error(`Failed to send series crawl job to queue: ${jobId}`);
+    }
+
+    this.logger.log(
+      `Series crawl job queued: ${jobId} (Type: ${type}, MaxPages: ${maxPages})`,
+    );
+
+    return jobId;
+  }
+
+  /**
+   * Process crawl job - fetches pages and queues individual media save jobs
+   *
+   * This method is called by worker to process the crawl job.
+   * It fetches media pages from AniList API and queues individual media save jobs.
    *
    * @param type - Media type to crawl (ANIME or MANGA)
    * @param maxPages - Maximum number of pages to crawl (0 = all pages)
    * @returns Promise with crawl statistics
    */
-  async crawlAniListMedia(
-    type: 'ANIME' | 'MANGA' = 'ANIME',
-    maxPages: number = 0,
+  async processCrawlJob(
+    type: 'ANIME' | 'MANGA',
+    maxPages: number,
   ): Promise<{
     totalFetched: number;
-    totalCreated: number;
-    totalUpdated: number;
+    totalQueued: number;
     errors: number;
   }> {
-    this.logger.log(`Starting AniList crawl for type: ${type}`);
+    this.logger.log(
+      `Processing crawl job for type: ${type}, maxPages: ${maxPages === 0 ? 'ALL' : maxPages}`,
+    );
+
+    // Check if RabbitMQ service is available
+    if (!this.rabbitMQService) {
+      throw new Error('RabbitMQ service is not available');
+    }
 
     let currentPage = 1;
     let hasNextPage = true;
     let totalFetched = 0;
-    let totalCreated = 0;
-    let totalUpdated = 0;
+    let totalQueued = 0;
     let errors = 0;
 
     try {
+      // Crawl all pages if maxPages is 0
       while (hasNextPage && (maxPages === 0 || currentPage <= maxPages)) {
         this.logger.log(
-          `Fetching page ${currentPage} of ${type} media from AniList...`,
+          `Fetching page ${currentPage} of ${type} media from AniList... (Rate limit: ${this.rateLimitRemaining}/${this.rateLimitLimit} remaining)`,
         );
 
         const pageData = await this.fetchMediaFromAniList(
@@ -1298,29 +1659,19 @@ export class AniListCrawlService {
           `Fetched ${mediaList.length} media items from page ${currentPage}`,
         );
 
-        // Process each media item
+        // Queue each media item for processing by worker
         for (const media of mediaList) {
           try {
-            const seriesData = this.mapAniListMediaToSeries(media);
-            const existingSeries = await this.seriesRepository.findOne({
-              where: { aniListId: seriesData.aniListId },
-            });
-
-            await this.saveOrUpdateSeries(seriesData);
-
-            if (existingSeries) {
-              totalUpdated++;
-            } else {
-              totalCreated++;
-            }
-
+            // Send media ID to queue for saving
+            await this.fetchAndSaveMediaById(media.id);
+            totalQueued++;
             totalFetched++;
           } catch (error: unknown) {
             errors++;
             const errorMessage =
               error instanceof Error ? error.message : 'Unknown error';
             this.logger.error(
-              `Failed to save media ${media.id}: ${errorMessage}`,
+              `Failed to queue media ${media.id}: ${errorMessage}`,
             );
           }
         }
@@ -1329,26 +1680,27 @@ export class AniListCrawlService {
         hasNextPage = pageInfo.hasNextPage;
         currentPage++;
 
-        // Add a small delay to avoid rate limiting
+        // Log progress
         if (hasNextPage) {
-          await new Promise((resolve) => setTimeout(resolve, 1000)); // 1 second delay
+          this.logger.log(
+            `Page ${currentPage - 1} completed. ${totalFetched} items fetched, ${totalQueued} queued. Rate limit: ${this.rateLimitRemaining}/${this.rateLimitLimit} remaining.`,
+          );
         }
       }
 
       this.logger.log(
-        `AniList crawl completed for ${type}. Fetched: ${totalFetched}, Created: ${totalCreated}, Updated: ${totalUpdated}, Errors: ${errors}`,
+        `Crawl job completed for ${type}. Total pages: ${currentPage - 1}, Fetched: ${totalFetched}, Queued: ${totalQueued}, Errors: ${errors}`,
       );
 
       return {
         totalFetched,
-        totalCreated,
-        totalUpdated,
+        totalQueued,
         errors,
       };
     } catch (error: unknown) {
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`AniList crawl failed for ${type}: ${errorMessage}`);
+      this.logger.error(`Crawl job failed for ${type}: ${errorMessage}`);
       throw error;
     }
   }
@@ -1384,19 +1736,17 @@ export class AniListCrawlService {
   /**
    * Manual crawl method for testing or on-demand updates
    *
+   * This method triggers a crawl job by sending it to queue.
+   * Worker will handle the actual crawling process.
+   *
    * @param type - Media type to crawl
    * @param maxPages - Maximum number of pages to crawl
-   * @returns Promise with crawl statistics
+   * @returns Promise with the job ID
    */
   async manualCrawl(
     type: 'ANIME' | 'MANGA' = 'ANIME',
     maxPages: number = 1,
-  ): Promise<{
-    totalFetched: number;
-    totalCreated: number;
-    totalUpdated: number;
-    errors: number;
-  }> {
+  ): Promise<string> {
     return this.crawlAniListMedia(type, maxPages);
   }
 
