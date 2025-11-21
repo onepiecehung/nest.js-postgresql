@@ -8,6 +8,10 @@ import {
 
 import { AnalyticsQueueJob } from 'src/analytics/interfaces/analytics-queue.interface';
 import {
+  SeriesCrawlJob,
+  SeriesSaveJob,
+} from 'src/series/services/series-queue.interface';
+import {
   ShareCountUpdateJob,
   ShareCreatedJob,
   ShareDeletedJob,
@@ -423,6 +427,62 @@ export class WorkerController {
       channel.ack(originalMsg);
     } catch (error: unknown) {
       console.log('Error processing analytics track:', error);
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
+      channel.nack(originalMsg, false, true);
+    }
+  }
+
+  // ==================== SERIES PROCESSING METHODS ====================
+
+  @MessagePattern(JOB_NAME.SERIES_SAVE)
+  async handleSeriesSave(
+    @Payload() job: SeriesSaveJob | string,
+    @Ctx() context: RmqContext,
+  ) {
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+    const channel = context.getChannelRef();
+    const originalMsg = context.getMessage();
+    try {
+      // Parse job if it's a string
+      if (typeof job === 'string') {
+        job = JSON.parse(job as string) as SeriesSaveJob;
+      }
+
+      console.log('Series save job received:', job.jobId);
+
+      await this.workerService.processSeriesSave(job);
+
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
+      channel.ack(originalMsg);
+    } catch (error: unknown) {
+      console.log('Error processing series save:', error);
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
+      channel.nack(originalMsg, false, true);
+    }
+  }
+
+  @MessagePattern(JOB_NAME.SERIES_CRAWL)
+  async handleSeriesCrawl(
+    @Payload() job: SeriesCrawlJob | string,
+    @Ctx() context: RmqContext,
+  ) {
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+    const channel = context.getChannelRef();
+    const originalMsg = context.getMessage();
+    try {
+      // Parse job if it's a string
+      if (typeof job === 'string') {
+        job = JSON.parse(job as string) as SeriesCrawlJob;
+      }
+
+      console.log('Series crawl job received:', job.jobId);
+
+      await this.workerService.processSeriesCrawl(job);
+
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
+      channel.ack(originalMsg);
+    } catch (error: unknown) {
+      console.log('Error processing series crawl:', error);
       // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
       channel.nack(originalMsg, false, true);
     }

@@ -10,4 +10,10 @@ export const oauthConfig = () => ({
     url: process.env.APPLE_URL,
     clientId: process.env.APPLE_CLIENT_ID,
   },
+  anilist: {
+    clientId: process.env.ANILIST_CLIENT_ID,
+    clientSecret: process.env.ANILIST_CLIENT_SECRET,
+    redirectUri: process.env.ANILIST_REDIRECT_URI,
+    tokenUrl: 'https://anilist.co/api/v2/oauth/token',
+  },
 });

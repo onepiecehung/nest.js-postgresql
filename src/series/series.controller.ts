@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -15,10 +16,14 @@ import { CursorPaginationDto } from 'src/common/dto';
 import { SnowflakeIdPipe } from 'src/common/pipes';
 import { CreateSeriesDto, QuerySeriesDto, UpdateSeriesDto } from './dto';
 import { SeriesService } from './series.service';
+import { AniListCrawlService } from './services/anilist-crawl.service';
 
 @Controller('series')
 export class SeriesController {
-  constructor(private readonly seriesService: SeriesService) {}
+  constructor(
+    private readonly seriesService: SeriesService,
+    private readonly anilistCrawlService: AniListCrawlService,
+  ) {}
 
   /**
    * Create a new series
@@ -45,6 +50,32 @@ export class SeriesController {
   @Get('cursor')
   async findAllCursor(@Query() paginationDto: CursorPaginationDto) {
     return this.seriesService.findAllCursor(paginationDto);
+  }
+
+  /**
+   * Get media detail from AniList by AniList ID
+   * This endpoint fetches data directly from AniList API
+   * Must be placed before @Get(':id') to avoid route conflict
+   *
+   * @param anilistId - AniList media ID (not our internal series ID)
+   * @returns AniList media data
+   */
+  @Get('anilist/:anilistId')
+  async getAniListMediaById(@Param('anilistId') anilistId: string) {
+    const id = parseInt(anilistId, 10);
+    if (isNaN(id)) {
+      throw new BadRequestException('Invalid AniList ID. Must be a number.');
+    }
+    return this.anilistCrawlService.getMediaById(id);
+  }
+
+  @Get('anilist/:anilistId/save')
+  async saveAniListMediaById(@Param('anilistId') anilistId: string) {
+    const id = parseInt(anilistId, 10);
+    if (isNaN(id)) {
+      throw new BadRequestException('Invalid AniList ID. Must be a number.');
+    }
+    return this.anilistCrawlService.fetchAndSaveMediaById(id);
   }
 
   /**

@@ -23,7 +23,7 @@ import { MailerEmailOtpSender, RedisOtpStore } from './providers';
 
 // Mock bcrypt
 jest.mock('bcrypt');
-const mockedBcrypt = bcrypt as jest.Mocked<typeof bcrypt>;
+const mockedBcrypt = bcrypt;
 
 describe('AuthService', () => {
   let service: AuthService;

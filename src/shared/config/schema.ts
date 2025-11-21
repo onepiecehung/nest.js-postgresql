@@ -102,6 +102,11 @@ export const configValidationSchema = Joi.object({
   // APPLE_URL: Joi.string().uri().optional(),
   // APPLE_CLIENT_ID: Joi.string().optional(),
 
+  // AniList OAuth configuration (optional - for authenticated requests)
+  ANILIST_CLIENT_ID: Joi.string().optional(),
+  ANILIST_CLIENT_SECRET: Joi.string().optional(),
+  ANILIST_REDIRECT_URI: Joi.string().uri().optional(),
+
   // WebSocket configuration
   WS_ADAPTER_ENABLED: Joi.boolean().default(false),
 

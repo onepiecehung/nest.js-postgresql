@@ -7,6 +7,12 @@ import {
 import { CommentsService } from 'src/comments/comments.service';
 import { maskEmail } from 'src/common/utils';
 import {
+  SeriesCrawlJob,
+  SeriesSaveJob,
+  SeriesSaveJobResult,
+} from 'src/series/services/series-queue.interface';
+import { AniListCrawlService } from 'src/series/services/anilist-crawl.service';
+import {
   ShareCountResult,
   ShareCountUpdateJob,
   ShareCreatedJob,
@@ -32,6 +38,7 @@ export class WorkerService {
     private readonly commentsService: CommentsService,
     private readonly mailQueueIntegrationService: MailQueueIntegrationService,
     private readonly analyticsService: AnalyticsService,
+    private readonly aniListCrawlService: AniListCrawlService,
   ) {}
 
   testRABBIT(id: number) {
@@ -800,6 +807,94 @@ export class WorkerService {
         error: error instanceof Error ? error.message : 'Unknown error',
         processingTime,
       };
+    }
+  }
+
+  // ==================== SERIES PROCESSING METHODS ====================
+
+  /**
+   * Process series save job
+   * Fetches media data from AniList API and saves it to database as Series entity
+   */
+  async processSeriesSave(job: SeriesSaveJob): Promise<SeriesSaveJobResult> {
+    const startTime = Date.now();
+    this.logger.log(
+      `Processing series save job: ${job.jobId} (AniList ID: ${job.aniListId})`,
+    );
+
+    try {
+      // Fetch media data from AniList API
+      const anilistMedia = await this.aniListCrawlService.getMediaById(
+        job.aniListId,
+      );
+
+      if (!anilistMedia) {
+        throw new Error(`Media with AniList ID ${job.aniListId} not found`);
+      }
+
+      // Process and save series from AniList media data
+      const savedSeries =
+        await this.aniListCrawlService.processAndSaveSeriesFromAniListMedia(
+          anilistMedia,
+        );
+
+      const processingTime = Date.now() - startTime;
+      this.logger.log(
+        `Series save job completed: ${job.jobId}, seriesId: ${savedSeries.id}, time: ${processingTime}ms`,
+      );
+
+      // Check if this was a new series or an update
+      const isNew =
+        savedSeries.createdAt.getTime() === savedSeries.updatedAt.getTime();
+
+      return {
+        jobId: job.jobId,
+        success: true,
+        processingTime,
+        data: {
+          seriesId: savedSeries.id,
+          aniListId: savedSeries.aniListId,
+          isNew,
+        },
+      };
+    } catch (error) {
+      const processingTime = Date.now() - startTime;
+      this.logger.error(`Series save job failed: ${job.jobId}`, error);
+
+      return {
+        jobId: job.jobId,
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        processingTime,
+      };
+    }
+  }
+
+  /**
+   * Process series crawl job
+   * Fetches pages from AniList API and queues individual media save jobs
+   */
+  async processSeriesCrawl(job: SeriesCrawlJob): Promise<void> {
+    const startTime = Date.now();
+    this.logger.log(
+      `Processing series crawl job: ${job.jobId} (Type: ${job.type}, MaxPages: ${job.maxPages})`,
+    );
+
+    try {
+      // Process crawl job - this will fetch pages and queue individual media save jobs
+      const result = await this.aniListCrawlService.processCrawlJob(
+        job.type,
+        job.maxPages,
+      );
+
+      const processingTime = Date.now() - startTime;
+      this.logger.log(
+        `Series crawl job completed: ${job.jobId}, Fetched: ${result.totalFetched}, Queued: ${result.totalQueued}, Errors: ${result.errors}, time: ${processingTime}ms`,
+      );
+    } catch (error) {
+      const processingTime = Date.now() - startTime;
+      this.logger.error(`Series crawl job failed: ${job.jobId}`, error);
+      throw error;
     }
   }
 }
