@@ -12,6 +12,7 @@ import {
   Entity,
   Index,
   JoinColumn,
+  JoinTable,
   ManyToMany,
   ManyToOne,
   OneToMany,
@@ -194,7 +195,22 @@ export class Series extends BaseEntityCustom {
   /**
    * Official Twitter hashtags for the media
    */
-  @ManyToMany(() => Tag, (tag) => tag.series, { nullable: true })
+  @ManyToMany(() => Tag, (tag) => tag.series, {
+    nullable: true,
+    cascade: false, // Don't cascade delete tags when series is deleted
+    eager: false, // Don't load tags by default for performance
+  })
+  @JoinTable({
+    name: 'series_tags',
+    joinColumn: {
+      name: 'series_id',
+      referencedColumnName: 'id',
+    },
+    inverseJoinColumn: {
+      name: 'tag_id',
+      referencedColumnName: 'id',
+    },
+  })
   tags?: Tag[];
 
   /**

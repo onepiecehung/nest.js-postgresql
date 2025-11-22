@@ -502,6 +502,3 @@ Build features by **manually** updating entities, repositories, services, contro
 **No generators. No migrations. No add Swagger docs. Yarn only.**
 Follow the established conventions to ensure a consistent, scalable, and maintainable codebase.
 
-```
-::contentReference[oaicite:0]{index=0}
-```
