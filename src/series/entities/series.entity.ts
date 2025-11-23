@@ -47,7 +47,7 @@ export class Series extends BaseEntityCustom {
   @Column({ type: 'varchar', nullable: true })
   myAnimeListId?: string;
 
-  @Index() // Index for MAL ID lookup
+  @Index() // Index for anilist ID lookup
   @Column({ type: 'varchar', nullable: true })
   aniListId?: string;
 
@@ -214,6 +214,12 @@ export class Series extends BaseEntityCustom {
   tags?: Tag[];
 
   /**
+   * The URLs of the cover images of the media
+   */
+  @Column({ type: 'jsonb', nullable: true })
+  coverImageUrls?: Record<string, string>;
+
+  /**
    * The ID of the cover image of the media
    */
   @Column({ type: 'bigint', nullable: true })
@@ -225,6 +231,12 @@ export class Series extends BaseEntityCustom {
   @ManyToOne(() => Media, { nullable: true })
   @JoinColumn({ name: 'coverImageId', referencedColumnName: 'id' })
   coverImage: Media;
+
+  /**
+   * The URLs of the banner images of the media
+   */
+  @Column({ type: 'text', nullable: true })
+  bannerImageUrl?: string;
 
   /**
    * The ID of the banner image of the media

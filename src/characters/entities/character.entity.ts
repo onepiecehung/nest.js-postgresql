@@ -146,8 +146,9 @@ export class Character extends BaseEntityCustom {
 
   /**
    * The ID of the staff member who voices this character
+   * Nullable because not all characters have a voice actor associated
    */
-  @Column({ type: 'bigint', nullable: false })
+  @Column({ type: 'bigint', nullable: true })
   staffId?: string;
 
   /**

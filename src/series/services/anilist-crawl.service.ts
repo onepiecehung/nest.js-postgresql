@@ -912,10 +912,10 @@ export class AniListCrawlService {
         );
         if (rateLimitError && retryCount < 3) {
           const retryAfter = response.headers?.['retry-after']
-            ? parseInt(String(response.headers['retry-after']), 10)
+            ? Number.parseInt(String(response.headers['retry-after']), 10)
             : undefined;
           const rateLimitReset = response.headers?.['x-ratelimit-reset']
-            ? parseInt(String(response.headers['x-ratelimit-reset']), 10)
+            ? Number.parseInt(String(response.headers['x-ratelimit-reset']), 10)
             : undefined;
 
           await this.handleRateLimitError(retryAfter, rateLimitReset);
@@ -951,22 +951,18 @@ export class AniListCrawlService {
           headers?: Record<string, string | string[] | undefined>;
         };
         const retryAfterHeader = response.headers?.['retry-after'];
-        const retryAfter = retryAfterHeader
-          ? parseInt(
-              Array.isArray(retryAfterHeader)
-                ? retryAfterHeader[0]
-                : retryAfterHeader,
-              10,
-            )
+        const retryAfterValue = Array.isArray(retryAfterHeader)
+          ? retryAfterHeader[0]
+          : retryAfterHeader;
+        const retryAfter = retryAfterValue
+          ? Number.parseInt(String(retryAfterValue), 10)
           : undefined;
         const rateLimitResetHeader = response.headers?.['x-ratelimit-reset'];
-        const rateLimitReset = rateLimitResetHeader
-          ? parseInt(
-              Array.isArray(rateLimitResetHeader)
-                ? rateLimitResetHeader[0]
-                : rateLimitResetHeader,
-              10,
-            )
+        const rateLimitResetValue = Array.isArray(rateLimitResetHeader)
+          ? rateLimitResetHeader[0]
+          : rateLimitResetHeader;
+        const rateLimitReset = rateLimitResetValue
+          ? Number.parseInt(String(rateLimitResetValue), 10)
           : undefined;
 
         await this.handleRateLimitError(retryAfter, rateLimitReset);
@@ -1048,6 +1044,7 @@ export class AniListCrawlService {
     try {
       // Map AniList media data to Series entity format
       const seriesData = this.mapAniListMediaToSeries(anilistMedia);
+      console.log('seriesData', seriesData);
 
       // Save or update the series in the database with all relations
       const savedSeries = await this.saveOrUpdateSeries(
@@ -1294,6 +1291,16 @@ export class AniListCrawlService {
       streamingEpisodes: this.convertStreamingEpisodes(
         anilistMedia.streamingEpisodes,
       ),
+      coverImageUrls:
+        anilistMedia.coverImage &&
+        Object.keys(anilistMedia.coverImage).length > 0
+          ? (Object.fromEntries(
+              Object.entries(anilistMedia.coverImage).filter(
+                ([key, value]) => value !== undefined,
+              ),
+            ) as Record<string, string>)
+          : undefined,
+      bannerImageUrl: anilistMedia.bannerImage || undefined,
       autoCreateForumThread: anilistMedia.autoCreateForumThread || undefined,
       isRecommendationBlocked:
         anilistMedia.isRecommendationBlocked || undefined,
@@ -1306,10 +1313,7 @@ export class AniListCrawlService {
             ? anilistMedia.coverImage
             : undefined,
         bannerImage: anilistMedia.bannerImage || undefined,
-        genres:
-          anilistMedia.genres && anilistMedia.genres.length > 0
-            ? anilistMedia.genres
-            : undefined,
+        // Note: genres are handled separately via SeriesGenre junction table, not stored in metadata
         tags:
           anilistMedia.tags && anilistMedia.tags.length > 0
             ? anilistMedia.tags.map((tag) => ({
@@ -1607,6 +1611,7 @@ export class AniListCrawlService {
       if (existingSeries) {
         // Update existing series
         Object.assign(existingSeries, seriesData);
+        console.log('existingSeries updated', existingSeries);
         savedSeries = await manager.save(Series, existingSeries);
       } else {
         // Create new series
@@ -1628,7 +1633,8 @@ export class AniListCrawlService {
 
   /**
    * Process and save genres for a series
-   * Creates genres if they don't exist and links them via SeriesGenre junction table
+   * Links existing genres to series via SeriesGenre junction table
+   * Note: Genres must exist in the database beforehand - this function does not create genres
    */
   private async processSeriesGenres(
     manager: EntityManager,
@@ -1642,26 +1648,25 @@ export class AniListCrawlService {
     // Remove existing genre relations for this series
     await manager.delete(SeriesGenre, { seriesId: series.id });
 
-    // Process each genre
+    // Process each genre - only link to existing genres
     for (let index = 0; index < anilistMedia.genres.length; index++) {
       const genreName = anilistMedia.genres[index];
       if (!genreName) continue;
 
-      // Find or create genre
-      let genre = await manager.findOne(Genre, {
+      // Find existing genre by slug
+      const genre = await manager.findOne(Genre, {
         where: { slug: createSlug(genreName) },
       });
 
+      // Skip if genre doesn't exist - genres are pre-defined and not created by crawl service
       if (!genre) {
-        genre = manager.create(Genre, {
-          slug: createSlug(genreName),
-          name: genreName,
-          sortOrder: index,
-        });
-        genre = await manager.save(Genre, genre);
+        this.logger.warn(
+          `Genre "${genreName}" (slug: ${createSlug(genreName)}) not found in database. Skipping genre assignment for series ${series.id}`,
+        );
+        continue;
       }
 
-      // Create SeriesGenre relation
+      // Create SeriesGenre relation to link series with existing genre
       const seriesGenre = manager.create(SeriesGenre, {
         seriesId: series.id,
         genreId: genre.id,
@@ -1675,6 +1680,7 @@ export class AniListCrawlService {
   /**
    * Process and save tags for a series
    * Creates tags if they don't exist and links them via ManyToMany relationship
+   * Updates tag metadata from AniList if tag already exists
    */
   private async processSeriesTags(
     manager: EntityManager,
@@ -1691,18 +1697,44 @@ export class AniListCrawlService {
     for (const anilistTag of anilistMedia.tags) {
       if (!anilistTag.name) continue;
 
-      // Find or create tag
-      let tag = await manager.findOne(Tag, {
-        where: { slug: createSlug(anilistTag.name) },
-      });
+      // Try to find tag by aniListTagId first, then by slug
+      let tag = anilistTag.id
+        ? await manager.findOne(Tag, {
+            where: { aniListTagId: anilistTag.id.toString() },
+          })
+        : null;
 
       if (!tag) {
+        tag = await manager.findOne(Tag, {
+          where: { slug: createSlug(anilistTag.name) },
+        });
+      }
+
+      // Prepare tag data with AniList metadata
+      const tagData: Partial<Tag> = {
+        slug: createSlug(anilistTag.name),
+        name: anilistTag.name,
+        description: anilistTag.description || undefined,
+        category: anilistTag.category || undefined,
+        isMediaSpoiler: anilistTag.isMediaSpoiler || false,
+        isGeneralSpoiler: anilistTag.isGeneralSpoiler || false,
+        isAdult: anilistTag.isAdult || false,
+      };
+
+      if (anilistTag.id) {
+        tagData.aniListTagId = anilistTag.id.toString();
+      }
+
+      if (!tag) {
+        // Create new tag with all AniList metadata
         tag = manager.create(Tag, {
-          slug: createSlug(anilistTag.name),
-          name: anilistTag.name,
-          description: anilistTag.description || undefined,
+          ...tagData,
           isActive: true,
         });
+        tag = await manager.save(Tag, tag);
+      } else {
+        // Update existing tag with AniList metadata (sync with AniList)
+        Object.assign(tag, tagData);
         tag = await manager.save(Tag, tag);
       }
 

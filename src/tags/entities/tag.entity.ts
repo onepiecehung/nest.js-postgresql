@@ -31,6 +31,10 @@ export class Tag extends BaseEntityCustom {
   })
   name: string;
 
+  @Index() // Index for anilist ID lookup
+  @Column({ type: 'varchar', nullable: true })
+  aniListTagId?: string;
+
   /**
    * URL-friendly slug for SEO and routing
    * Generated from name, must be unique
@@ -69,6 +73,20 @@ export class Tag extends BaseEntityCustom {
     comment: 'Tag color in hex format (e.g., #3B82F6)',
   })
   color?: string;
+
+  @Column({
+    type: 'varchar',
+    length: 7,
+    nullable: true,
+    comment: 'Tag color in hex format (e.g., #3B82F6)',
+  })
+  @Column({
+    type: 'varchar',
+    length: 100,
+    nullable: true,
+    comment: 'Tag category',
+  })
+  category?: string;
 
   /**
    * Tag icon for visual representation
@@ -121,6 +139,30 @@ export class Tag extends BaseEntityCustom {
     comment: 'Whether this tag is featured/promoted',
   })
   isFeatured: boolean;
+
+  @Column({
+    type: 'boolean',
+    default: false,
+    nullable: false,
+    comment: 'Whether this tag is a media spoiler',
+  })
+  isMediaSpoiler: boolean;
+
+  @Column({
+    type: 'boolean',
+    default: false,
+    nullable: false,
+    comment: 'Whether this tag is a general spoiler for all media',
+  })
+  isGeneralSpoiler: boolean;
+
+  @Column({
+    type: 'boolean',
+    default: false,
+    nullable: false,
+    comment: 'Whether this tag is for adult content',
+  })
+  isAdult: boolean;
 
   /**
    * SEO meta title for tag pages
