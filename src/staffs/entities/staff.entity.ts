@@ -1,5 +1,5 @@
 import { instanceToPlain } from 'class-transformer';
-import { Character } from 'src/characters/entities/character.entity';
+import { CharacterStaff } from 'src/characters/entities/character-staff.entity';
 import { Media } from 'src/media/entities/media.entity';
 import { STAFF_CONSTANTS } from 'src/shared/constants';
 import { BaseEntityCustom } from 'src/shared/entities/base.entity';
@@ -224,15 +224,15 @@ export class Staff extends BaseEntityCustom {
   status?: string;
 
   /**
-   * Characters voiced by this staff member
-   * One-to-Many relationship with StaffCharacter junction entity
-   * One staff can voice multiple characters with role information
+   * Characters voiced by this staff member.
+   * One-to-Many relationship with CharacterStaff junction entity.
+   * One staff can voice multiple characters with language information.
    */
-  @OneToMany(() => Character, (character) => character.staff, {
+  @OneToMany(() => CharacterStaff, (characterStaff) => characterStaff.staff, {
     cascade: false, // Don't cascade delete character relationships when staff is deleted
     eager: false, // Don't load characters by default for performance
   })
-  characters?: Character[];
+  characterRoles?: CharacterStaff[];
 
   /**
    * Series on which this staff member worked.

@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Character } from 'src/characters/entities/character.entity';
+import { Character, CharacterStaff } from 'src/characters/entities';
 import { AdvancedPaginationDto, CursorPaginationDto } from 'src/common/dto';
 import { IPagination, IPaginationCursor } from 'src/common/interface';
 import { TypeOrmBaseRepository } from 'src/common/repositories/typeorm.base-repo';
@@ -21,6 +21,9 @@ export class StaffsService extends BaseService<Staff> {
     @InjectRepository(Character)
     private readonly characterRepository: Repository<Character>,
 
+    @InjectRepository(CharacterStaff)
+    private readonly characterStaffRepository: Repository<CharacterStaff>,
+
     cacheService: CacheService,
     private readonly reactionsService: ReactionsService,
   ) {
@@ -32,8 +35,10 @@ export class StaffsService extends BaseService<Staff> {
         defaultSearchField: 'description',
         relationsWhitelist: {
           image: true,
-          characters: {
-            image: true,
+          characterRoles: {
+            character: {
+              image: true,
+            },
           },
           seriesRoles: {
             series: true,
@@ -66,12 +71,21 @@ export class StaffsService extends BaseService<Staff> {
           metadata: true,
           createdAt: true,
           updatedAt: true,
-          characters: {
+          characterRoles: {
             id: true,
-            name: true,
-            image: {
+            characterId: true,
+            staffId: true,
+            language: true,
+            isPrimary: true,
+            sortOrder: true,
+            notes: true,
+            character: {
               id: true,
-              url: true,
+              name: true,
+              image: {
+                id: true,
+                url: true,
+              },
             },
           },
           seriesRoles: {
@@ -184,7 +198,11 @@ export class StaffsService extends BaseService<Staff> {
     }
 
     return this.findById(staff.id, {
-      relations: ['characters', 'characters.image'],
+      relations: [
+        'characterRoles',
+        'characterRoles.character',
+        'characterRoles.character.image',
+      ],
     });
   }
 
@@ -220,15 +238,17 @@ export class StaffsService extends BaseService<Staff> {
     }
 
     return this.findById(id, {
-      relations: ['characters', 'characters.image'],
+      relations: [
+        'characterRoles',
+        'characterRoles.character',
+        'characterRoles.character.image',
+      ],
     });
   }
 
   /**
    * Link characters to a staff member with role information
-   * Note: The current entity structure uses a direct relationship (not a junction table),
-   * so role information (notes, dubGroup) cannot be stored on the relationship itself.
-   * This method links characters directly to the staff.
+   * Uses CharacterStaff junction table to store relationship with language and role information
    * Based on AniList API StaffRoleType: https://docs.anilist.co/reference/object/staffroletype
    */
   async linkCharactersWithRoles(
@@ -237,22 +257,40 @@ export class StaffsService extends BaseService<Staff> {
   ): Promise<void> {
     const staff = await this.staffRepository.findOne({
       where: { id: staffId },
-      relations: ['characters'],
     });
 
     if (!staff) {
       return;
     }
 
-    // Get character entities
-    const characterIds = characterRoles.map((role) => role.characterId);
-    const characters = await this.characterRepository.find({
-      where: characterIds.map((id) => ({ id })),
-    });
+    // Remove existing character-staff relationships for this staff
+    await this.characterStaffRepository.delete({ staffId });
 
-    // Update the staff's characters relationship
-    staff.characters = characters;
-    await this.staffRepository.save(staff);
+    // Create new CharacterStaff relationships
+    for (let index = 0; index < characterRoles.length; index++) {
+      const role = characterRoles[index];
+
+      // Verify character exists
+      const character = await this.characterRepository.findOne({
+        where: { id: role.characterId },
+      });
+
+      if (!character) {
+        continue;
+      }
+
+      // Create CharacterStaff junction entity
+      const characterStaff = this.characterStaffRepository.create({
+        staffId,
+        characterId: role.characterId,
+        language: role.dubGroup || undefined, // Use dubGroup as language if provided
+        isPrimary: index === 0, // First character is primary
+        sortOrder: index,
+        notes: role.notes || undefined,
+      });
+
+      await this.characterStaffRepository.save(characterStaff);
+    }
 
     // Invalidate cache
     await this.invalidateCacheForEntity(staffId);
@@ -327,7 +365,11 @@ export class StaffsService extends BaseService<Staff> {
     kinds?: string[],
   ): Promise<(Staff & { reactionCounts?: ReactionCount[] }) | null> {
     const staff = await this.findById(id, {
-      relations: ['characters', 'characters.image'],
+      relations: [
+        'characterRoles',
+        'characterRoles.character',
+        'characterRoles.character.image',
+      ],
     });
     if (!staff) {
       return null;

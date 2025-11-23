@@ -3,8 +3,15 @@ import { Media } from 'src/media/entities/media.entity';
 import { Series } from 'src/series/entities/series.entity';
 import { CHARACTER_CONSTANTS } from 'src/shared/constants';
 import { BaseEntityCustom } from 'src/shared/entities/base.entity';
-import { Staff } from 'src/staffs/entities/staff.entity';
-import { Column, Entity, Index, JoinColumn, ManyToOne } from 'typeorm';
+import {
+  Column,
+  Entity,
+  Index,
+  JoinColumn,
+  ManyToOne,
+  OneToMany,
+} from 'typeorm';
+import { CharacterStaff } from './character-staff.entity';
 
 /**
  * Character Name structure
@@ -145,22 +152,19 @@ export class Character extends BaseEntityCustom {
   metadata?: Record<string, unknown>;
 
   /**
-   * The ID of the staff member who voices this character
-   * Nullable because not all characters have a voice actor associated
+   * Voice actors (staff members) who voice this character.
+   * One-to-Many relationship with CharacterStaff junction entity.
+   * One character can have multiple voice actors (different languages).
    */
-  @Column({ type: 'bigint', nullable: true })
-  staffId?: string;
-
-  /**
-   * Staff member (voice actor) who voices this character
-   * Many-to-One relationship with Staff entity
-   */
-  @ManyToOne(() => Staff, {
-    nullable: true,
-    onDelete: 'CASCADE',
-  })
-  @JoinColumn({ name: 'staffId', referencedColumnName: 'id' })
-  staff?: Staff;
+  @OneToMany(
+    () => CharacterStaff,
+    (characterStaff) => characterStaff.character,
+    {
+      cascade: false, // Don't cascade delete voice actor relationships when character is deleted
+      eager: false, // Don't load voice actors by default for performance
+    },
+  )
+  voiceActors?: CharacterStaff[];
 
   /**
    * The ID of the series in which this character appears

@@ -5,7 +5,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { firstValueFrom } from 'rxjs';
 import { Author, AuthorSeries } from 'src/authors/entities';
-import { Character } from 'src/characters/entities/character.entity';
+import { Character, CharacterStaff } from 'src/characters/entities';
 import { createSlug, generateJobId } from 'src/common/utils';
 import {
   JOB_NAME,
@@ -33,6 +33,7 @@ import {
   AniListPageInfo,
   AniListStreamingEpisode,
   AniListTokenResponse,
+  AniListVoiceActor,
 } from './anilist.types';
 import { SeriesCrawlJob, SeriesSaveJob } from './series-queue.interface';
 
@@ -72,6 +73,8 @@ export class AniListCrawlService {
     private readonly tagRepository: Repository<Tag>,
     @InjectRepository(Character)
     private readonly characterRepository: Repository<Character>,
+    @InjectRepository(CharacterStaff)
+    private readonly characterStaffRepository: Repository<CharacterStaff>,
     @InjectRepository(Staff)
     private readonly staffRepository: Repository<Staff>,
     @InjectRepository(StaffSeries)
@@ -1634,8 +1637,7 @@ export class AniListCrawlService {
 
   /**
    * Process and save genres for a series
-   * Links existing genres to series via SeriesGenre junction table
-   * Note: Genres must exist in the database beforehand - this function does not create genres
+   * Creates genres if they don't exist and links them via SeriesGenre junction table
    */
   private async processSeriesGenres(
     manager: EntityManager,
@@ -1649,25 +1651,31 @@ export class AniListCrawlService {
     // Remove existing genre relations for this series
     await manager.delete(SeriesGenre, { seriesId: series.id });
 
-    // Process each genre - only link to existing genres
+    // Process each genre - create if doesn't exist
     for (let index = 0; index < anilistMedia.genres.length; index++) {
       const genreName = anilistMedia.genres[index];
       if (!genreName) continue;
 
-      // Find existing genre by slug
-      const genre = await manager.findOne(Genre, {
+      // Find or create genre by slug
+      let genre = await manager.findOne(Genre, {
         where: { slug: createSlug(genreName) },
       });
 
-      // Skip if genre doesn't exist - genres are pre-defined and not created by crawl service
       if (!genre) {
-        this.logger.warn(
-          `Genre "${genreName}" (slug: ${createSlug(genreName)}) not found in database. Skipping genre assignment for series ${series.id}`,
+        // Create new genre if it doesn't exist
+        genre = manager.create(Genre, {
+          slug: createSlug(genreName),
+          name: genreName,
+          sortOrder: index,
+          isNsfw: false, // Default to false, can be updated later if needed
+        });
+        genre = await manager.save(Genre, genre);
+        this.logger.log(
+          `Created new genre "${genreName}" (slug: ${createSlug(genreName)}) for series ${series.id}`,
         );
-        continue;
       }
 
-      // Create SeriesGenre relation to link series with existing genre
+      // Create SeriesGenre relation to link series with genre
       const seriesGenre = manager.create(SeriesGenre, {
         seriesId: series.id,
         genreId: genre.id,
@@ -1750,6 +1758,7 @@ export class AniListCrawlService {
   /**
    * Process and save characters for a series
    * Creates characters if they don't exist and links them to the series
+   * Also processes voice actors and links them via CharacterStaff junction table
    */
   private async processSeriesCharacters(
     manager: EntityManager,
@@ -1808,6 +1817,83 @@ export class AniListCrawlService {
         character = manager.create(Character, characterData);
         character = await manager.save(Character, character);
       }
+
+      // Process voice actors for this character
+      if (edge.voiceActors && edge.voiceActors.length > 0) {
+        await this.processCharacterVoiceActors(
+          manager,
+          character,
+          edge.voiceActors,
+        );
+      }
+    }
+  }
+
+  /**
+   * Process and save voice actors for a character
+   * Creates staff if they don't exist and links them via CharacterStaff junction table
+   */
+  private async processCharacterVoiceActors(
+    manager: EntityManager,
+    character: Character,
+    voiceActors: AniListVoiceActor[],
+  ): Promise<void> {
+    if (!voiceActors || voiceActors.length === 0) {
+      return;
+    }
+
+    // Remove existing voice actor relations for this character
+    await manager.delete(CharacterStaff, { characterId: character.id });
+
+    // Process each voice actor
+    for (let index = 0; index < voiceActors.length; index++) {
+      const voiceActor = voiceActors[index];
+      if (!voiceActor || !voiceActor.id) continue;
+
+      // Find or create staff by aniListId
+      let staff = await manager.findOne(Staff, {
+        where: { aniListId: voiceActor.id.toString() },
+      });
+
+      if (!staff) {
+        // Create new staff from voice actor data
+        const staffData: Partial<Staff> = {
+          aniListId: voiceActor.id.toString(),
+          name: voiceActor.name
+            ? {
+                first: voiceActor.name.first,
+                middle: voiceActor.name.middle,
+                last: voiceActor.name.last,
+                full: voiceActor.name.full,
+                native: voiceActor.name.native,
+                alternative: voiceActor.name.alternative,
+                userPreferred: voiceActor.name.userPreferred,
+              }
+            : undefined,
+          language: voiceActor.language || undefined,
+          imageUrls:
+            voiceActor.image && Object.keys(voiceActor.image).length > 0
+              ? (Object.fromEntries(
+                  Object.entries(voiceActor.image).filter(
+                    ([key, value]) => value !== undefined,
+                  ),
+                ) as Record<string, string>)
+              : undefined,
+        };
+
+        staff = manager.create(Staff, staffData);
+        staff = await manager.save(Staff, staff);
+      }
+
+      // Create CharacterStaff relation
+      const characterStaff = manager.create(CharacterStaff, {
+        characterId: character.id,
+        staffId: staff.id,
+        language: voiceActor.language || undefined,
+        isPrimary: index === 0, // First voice actor is primary
+        sortOrder: index,
+      });
+      await manager.save(CharacterStaff, characterStaff);
     }
   }
 

@@ -2,7 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { HttpModule } from '@nestjs/axios';
 import { Author, AuthorSeries } from 'src/authors/entities';
-import { Character } from 'src/characters/entities/character.entity';
+import { Character, CharacterStaff } from 'src/characters/entities';
 import { ReactionsModule } from 'src/reactions/reactions.module';
 import { Staff, StaffSeries } from 'src/staffs/entities';
 import { Studio, StudioSeries } from 'src/studios/entities';
@@ -22,6 +22,7 @@ import { AniListCrawlService } from './services/anilist-crawl.service';
       SeriesGenre,
       Tag,
       Character,
+      CharacterStaff,
       Staff,
       StaffSeries,
       Studio,
