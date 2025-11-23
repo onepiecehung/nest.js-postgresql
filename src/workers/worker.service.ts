@@ -7,6 +7,7 @@ import {
 import { CommentsService } from 'src/comments/comments.service';
 import { maskEmail } from 'src/common/utils';
 import {
+  SeriesBatchSaveJob,
   SeriesCrawlJob,
   SeriesSaveJob,
   SeriesSaveJobResult,
@@ -872,20 +873,17 @@ export class WorkerService {
 
   /**
    * Process series crawl job
-   * Fetches pages from AniList API and queues individual media save jobs
+   * Fetches all pages from AniList API and saves media directly to database
    */
   async processSeriesCrawl(job: SeriesCrawlJob): Promise<void> {
     const startTime = Date.now();
     this.logger.log(
-      `Processing series crawl job: ${job.jobId} (Type: ${job.type}, MaxPages: ${job.maxPages})`,
+      `Processing series crawl job: ${job.jobId} (Type: ${job.type}, All pages)`,
     );
 
     try {
-      // Process crawl job - this will fetch pages and queue individual media save jobs
-      const result = await this.aniListCrawlService.processCrawlJob(
-        job.type,
-        job.maxPages,
-      );
+      // Process crawl job - this will fetch all pages and save media directly to database
+      const result = await this.aniListCrawlService.processCrawlJob(job.type);
 
       const processingTime = Date.now() - startTime;
       this.logger.log(
@@ -894,6 +892,74 @@ export class WorkerService {
     } catch (error) {
       const processingTime = Date.now() - startTime;
       this.logger.error(`Series crawl job failed: ${job.jobId}`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Process series batch save job
+   * Queues individual media save jobs with rate limiting (30 requests per minute)
+   *
+   * @param job - Batch save job containing array of AniList media IDs
+   */
+  async processSeriesBatchSave(job: SeriesBatchSaveJob): Promise<void> {
+    const startTime = Date.now();
+    const totalItems = job.aniListIds.length;
+    this.logger.log(
+      `Processing series batch save job: ${job.jobId} (${totalItems} items)`,
+    );
+
+    const RATE_LIMIT_PER_MINUTE = 30; // AniList rate limit: 30 requests per minute
+    const DELAY_BETWEEN_REQUESTS = (60 * 1000) / RATE_LIMIT_PER_MINUTE; // ~2000ms between requests
+
+    let queued = 0;
+    let errors = 0;
+
+    try {
+      // Queue each media ID with rate limiting
+      for (let i = 0; i < job.aniListIds.length; i++) {
+        const aniListId = job.aniListIds[i];
+
+        try {
+          // Queue individual media save job
+          await this.aniListCrawlService.fetchAndSaveMediaById(aniListId);
+          queued++;
+
+          // Log progress every 100 items
+          if ((i + 1) % 100 === 0) {
+            this.logger.log(
+              `Batch save progress: ${i + 1}/${totalItems} items queued`,
+            );
+          }
+
+          // Rate limiting: wait between requests (except for the last one)
+          if (i < job.aniListIds.length - 1) {
+            await new Promise((resolve) =>
+              setTimeout(resolve, DELAY_BETWEEN_REQUESTS),
+            );
+          }
+        } catch (error: unknown) {
+          errors++;
+          const errorMessage =
+            error instanceof Error ? error.message : 'Unknown error';
+          this.logger.error(
+            `Failed to queue media ${aniListId} in batch: ${errorMessage}`,
+          );
+          // Continue with next item even if one fails
+        }
+      }
+
+      const processingTime = Date.now() - startTime;
+      this.logger.log(
+        `Series batch save job completed: ${job.jobId}, Queued: ${queued}/${totalItems}, Errors: ${errors}, time: ${processingTime}ms`,
+      );
+    } catch (error: unknown) {
+      const processingTime = Date.now() - startTime;
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(
+        `Series batch save job failed: ${job.jobId}, Error: ${errorMessage}, time: ${processingTime}ms`,
+      );
       throw error;
     }
   }

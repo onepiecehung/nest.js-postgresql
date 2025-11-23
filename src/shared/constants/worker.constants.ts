@@ -29,4 +29,5 @@ export const JOB_NAME = {
   // Series events
   SERIES_SAVE: 'series_save',
   SERIES_CRAWL: 'series_crawl',
+  SERIES_BATCH_SAVE: 'series_batch_save',
 } as const;

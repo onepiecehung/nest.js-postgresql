@@ -35,7 +35,11 @@ import {
   AniListTokenResponse,
   AniListVoiceActor,
 } from './anilist.types';
-import { SeriesCrawlJob, SeriesSaveJob } from './series-queue.interface';
+import {
+  SeriesBatchSaveJob,
+  SeriesCrawlJob,
+  SeriesSaveJob,
+} from './series-queue.interface';
 
 /**
  * Service for crawling media data from AniList API
@@ -51,14 +55,16 @@ import { SeriesCrawlJob, SeriesSaveJob } from './series-queue.interface';
 export class AniListCrawlService {
   private readonly logger = new Logger(AniListCrawlService.name);
   private readonly ANILIST_API_URL = 'https://graphql.anilist.co';
-  private readonly PER_PAGE = 50; // AniList allows up to 50 items per page
+  private readonly PER_PAGE = 50; // AniList API maximum limit: 50 items per page
   private readonly ACCESS_TOKEN_CACHE_KEY = 'anilist:access_token';
   private readonly REFRESH_TOKEN_CACHE_KEY = 'anilist:refresh_token';
+  private readonly CRAWL_STATE_CACHE_KEY_PREFIX = 'anilist:crawl_state:';
+  private readonly PAGES_PER_RUN = 10; // Number of pages to crawl per cronjob run
   private oauthConfig: AniListOAuthConfig | null = null;
 
   // Rate limiting tracking
-  private rateLimitLimit: number = 90; // Default: 90 requests per minute (currently degraded to 30)
-  private rateLimitRemaining: number = 90;
+  private rateLimitLimit: number = 30; // AniList rate limit: 30 requests per minute
+  private rateLimitRemaining: number = 30;
   private rateLimitReset: number = 0; // Unix timestamp
   private lastRequestTime: number = 0;
 
@@ -443,7 +449,7 @@ export class AniListCrawlService {
   private getMediaQuery(): string {
     return `
       ${this.getMediaFieldsFragment()}
-      query ($page: Int, $perPage: Int, $type: MediaType) {
+      query ($page: Int, $perPage: Int) {
         Page(page: $page, perPage: $perPage) {
           pageInfo {
             total
@@ -452,7 +458,7 @@ export class AniListCrawlService {
             lastPage
             hasNextPage
           }
-          media(type: $type, sort: ID_DESC) {
+          media(sort: ID_DESC) {
             ...mediaFields
           }
         }
@@ -727,18 +733,42 @@ export class AniListCrawlService {
     await new Promise((resolve) => setTimeout(resolve, waitTime));
   }
 
+  /**
+   * Get media list from AniList API (public method)
+   * Wrapper around fetchMediaFromAniList for external use
+   *
+   * @param page - Page number to fetch (default: 1)
+   * @param perPage - Number of items per page (default: 50, max: 50 - AniList API limit)
+   * @returns Promise with AniList page data
+   */
+  async getMediaListFromAniList(
+    page: number = 1,
+    perPage: number = this.PER_PAGE,
+  ): Promise<AniListPage> {
+    // AniList API maximum limit is 50 items per page
+    const validPerPage = Math.min(perPage, 50);
+    return this.fetchMediaFromAniList(page, validPerPage, 0);
+  }
+
   private async fetchMediaFromAniList(
     page: number = 1,
     perPage: number = this.PER_PAGE,
-    type: 'ANIME' | 'MANGA' = 'ANIME',
     retryCount: number = 0,
   ): Promise<AniListPage> {
+    // AniList API maximum limit is 50 items per page
+    const validPerPage = Math.min(perPage, 50);
+
     const query = this.getMediaQuery();
     const variables = {
       page,
-      perPage,
-      type,
+      perPage: validPerPage,
     };
+
+    setTimeout(() => {
+      this.logger.log(
+        `Fetching page ${page} of the media from AniList... (Rate limit: ${this.rateLimitRemaining}/${this.rateLimitLimit} remaining)`,
+      );
+    }, 2500);
 
     try {
       // Get authorization headers (with access token if available)
@@ -783,12 +813,7 @@ export class AniListCrawlService {
 
           await this.handleRateLimitError(retryAfter, rateLimitReset);
           // Retry the request
-          return this.fetchMediaFromAniList(
-            page,
-            perPage,
-            type,
-            retryCount + 1,
-          );
+          return this.fetchMediaFromAniList(page, perPage, retryCount + 1);
         }
 
         const errorMessages = responseData.errors
@@ -839,13 +864,13 @@ export class AniListCrawlService {
 
         await this.handleRateLimitError(retryAfter, rateLimitReset);
         // Retry the request
-        return this.fetchMediaFromAniList(page, perPage, type, retryCount + 1);
+        return this.fetchMediaFromAniList(page, perPage, retryCount + 1);
       }
 
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown error';
       this.logger.error(
-        `Failed to fetch media from AniList (page ${page}, type ${type}): ${errorMessage}`,
+        `Failed to fetch media from AniList (page ${page}): ${errorMessage}`,
       );
       throw error;
     }
@@ -1047,7 +1072,7 @@ export class AniListCrawlService {
     try {
       // Map AniList media data to Series entity format
       const seriesData = this.mapAniListMediaToSeries(anilistMedia);
-      console.log('seriesData', seriesData);
+      console.log('seriesData aniListId', seriesData.aniListId);
 
       // Save or update the series in the database with all relations
       const savedSeries = await this.saveOrUpdateSeries(
@@ -1615,7 +1640,7 @@ export class AniListCrawlService {
       if (existingSeries) {
         // Update existing series
         Object.assign(existingSeries, seriesData);
-        console.log('existingSeries updated', existingSeries);
+        // console.log('existingSeries updated', existingSeries);
         savedSeries = await manager.save(Series, existingSeries);
       } else {
         // Create new series
@@ -2065,17 +2090,13 @@ export class AniListCrawlService {
    * Trigger crawl job for AniList media
    *
    * This method only sends a crawl job to RabbitMQ queue.
-   * Worker will handle the actual crawling process (fetching pages and queuing individual media save jobs).
+   * Worker will handle the actual crawling process (fetching all pages and saving media directly to database).
    *
    * @param type - Media type to crawl (ANIME or MANGA)
-   * @param maxPages - Maximum number of pages to crawl (0 = all pages)
    * @returns Promise with the job ID
    * @throws Error if queue sending fails
    */
-  async crawlAniListMedia(
-    type: 'ANIME' | 'MANGA' = 'ANIME',
-    maxPages: number = 0,
-  ): Promise<string> {
+  async crawlAniListMedia(type: 'ANIME' | 'MANGA' = 'ANIME'): Promise<string> {
     // Check if RabbitMQ service is available
     if (!this.rabbitMQService) {
       throw new Error('RabbitMQ service is not available');
@@ -2086,7 +2107,7 @@ export class AniListCrawlService {
     const job: SeriesCrawlJob = {
       jobId,
       type,
-      maxPages,
+      maxPages: 0, // Keep for backward compatibility, but will crawl all pages
       timestamp: new Date().toISOString(),
     };
 
@@ -2101,101 +2122,118 @@ export class AniListCrawlService {
     }
 
     this.logger.log(
-      `Series crawl job queued: ${jobId} (Type: ${type}, MaxPages: ${maxPages})`,
+      `Series crawl job queued: ${jobId} (Type: ${type}, All pages)`,
     );
 
     return jobId;
   }
 
   /**
-   * Process crawl job - fetches pages and queues individual media save jobs
+   * Process crawl job - fetches all pages and saves media directly to database
    *
    * This method is called by worker to process the crawl job.
-   * It fetches media pages from AniList API and queues individual media save jobs.
+   * It fetches all media pages from AniList API and saves each media item directly to the database.
    *
    * @param type - Media type to crawl (ANIME or MANGA)
-   * @param maxPages - Maximum number of pages to crawl (0 = all pages)
    * @returns Promise with crawl statistics
    */
-  async processCrawlJob(
-    type: 'ANIME' | 'MANGA',
-    maxPages: number,
-  ): Promise<{
+  async processCrawlJob(type: 'ANIME' | 'MANGA'): Promise<{
     totalFetched: number;
     totalQueued: number;
     errors: number;
   }> {
-    this.logger.log(
-      `Processing crawl job for type: ${type}, maxPages: ${maxPages === 0 ? 'ALL' : maxPages}`,
-    );
+    this.logger.log(`Processing crawl job for type: ${type} (all pages)`);
 
-    // Check if RabbitMQ service is available
-    if (!this.rabbitMQService) {
-      throw new Error('RabbitMQ service is not available');
-    }
-
-    let currentPage = 1;
+    let currentPage = 2900;
     let hasNextPage = true;
-    let totalFetched = 0;
-    let totalQueued = 0;
+    let lastPage = Number.MAX_SAFE_INTEGER; // Initialize with max value, will be updated from first page
+    let totalSaved = 0;
     let errors = 0;
 
     try {
-      // Crawl all pages if maxPages is 0
-      while (hasNextPage && (maxPages === 0 || currentPage <= maxPages)) {
-        this.logger.log(
-          `Fetching page ${currentPage} of ${type} media from AniList... (Rate limit: ${this.rateLimitRemaining}/${this.rateLimitLimit} remaining)`,
-        );
+      // Crawl all pages - process and save each media item directly
+      // Loop continues only if: hasNextPage is true AND currentPage hasn't exceeded lastPage
+      while (hasNextPage && currentPage <= lastPage) {
+        try {
+          // Log before fetching the page
+          this.logger.log(
+            `Fetching page ${currentPage} of the media from AniList... (Rate limit: ${this.rateLimitRemaining}/${this.rateLimitLimit} remaining)`,
+          );
 
-        const pageData = await this.fetchMediaFromAniList(
-          currentPage,
-          this.PER_PAGE,
-          type,
-        );
+          const pageData = await this.fetchMediaFromAniList(
+            currentPage,
+            this.PER_PAGE,
+          );
 
-        const mediaList = pageData.Page.media;
-        const pageInfo = pageData.Page.pageInfo;
+          const mediaList = pageData.Page.media;
+          const pageInfo = pageData.Page.pageInfo;
 
-        this.logger.log(
-          `Fetched ${mediaList.length} media items from page ${currentPage}`,
-        );
+          // Update lastPage from the first successful fetch
+          if (lastPage === Number.MAX_SAFE_INTEGER) {
+            lastPage = pageInfo.lastPage;
+          }
 
-        // Queue each media item for processing by worker
-        for (const media of mediaList) {
-          try {
-            // Send media ID to queue for saving
-            await this.fetchAndSaveMediaById(media.id);
-            totalQueued++;
-            totalFetched++;
-          } catch (error: unknown) {
-            errors++;
-            const errorMessage =
-              error instanceof Error ? error.message : 'Unknown error';
-            this.logger.error(
-              `Failed to queue media ${media.id}: ${errorMessage}`,
+          this.logger.log(
+            `Fetched ${mediaList.length} media items from page ${currentPage} (Total: ${pageInfo.total}, Last page: ${pageInfo.lastPage})`,
+          );
+
+          // Process and save each media item
+          let pageSaved = 0;
+          let pageErrors = 0;
+          for (const media of mediaList) {
+            try {
+              await this.processAndSaveSeriesFromAniListMedia(media);
+              pageSaved++;
+              totalSaved++;
+            } catch (error: unknown) {
+              pageErrors++;
+              errors++;
+              const errorMessage =
+                error instanceof Error ? error.message : 'Unknown error';
+              this.logger.error(
+                `Failed to save media ${media.id}: ${errorMessage}`,
+              );
+              // Continue with next media item even if one fails
+            }
+          }
+
+          // Check if there are more pages and update currentPage only after processing is complete
+          hasNextPage = pageInfo.hasNextPage;
+          currentPage++;
+
+          // Log progress
+          if (hasNextPage && currentPage <= lastPage) {
+            this.logger.log(
+              `Page ${currentPage - 1} completed. Saved: ${pageSaved}/${mediaList.length}, Total saved: ${totalSaved}, Errors: ${pageErrors}. Rate limit: ${this.rateLimitRemaining}/${this.rateLimitLimit} remaining.`,
+            );
+          } else {
+            this.logger.log(
+              `Last page ${currentPage - 1} completed. Saved: ${pageSaved}/${mediaList.length}, Total saved: ${totalSaved}, Errors: ${pageErrors}.`,
             );
           }
-        }
-
-        // Check if there are more pages
-        hasNextPage = pageInfo.hasNextPage;
-        currentPage++;
-
-        // Log progress
-        if (hasNextPage) {
-          this.logger.log(
-            `Page ${currentPage - 1} completed. ${totalFetched} items fetched, ${totalQueued} queued. Rate limit: ${this.rateLimitRemaining}/${this.rateLimitLimit} remaining.`,
+        } catch (error: unknown) {
+          errors++;
+          const errorMessage =
+            error instanceof Error ? error.message : 'Unknown error';
+          this.logger.error(
+            `Failed to fetch page ${currentPage} of ${type}: ${errorMessage}`,
           );
+          // Increment currentPage and check if we should continue
+          currentPage++;
+          // Stop if we've exceeded lastPage or if there's a critical error
+          if (currentPage > lastPage) {
+            hasNextPage = false;
+          }
         }
       }
 
       this.logger.log(
-        `Crawl job completed for ${type}. Total pages: ${currentPage - 1}, Fetched: ${totalFetched}, Queued: ${totalQueued}, Errors: ${errors}`,
+        `Crawl completed for ${type}. Total pages: ${currentPage - 1}, Total items saved: ${totalSaved}, Total errors: ${errors}`,
       );
 
       return {
-        totalFetched,
-        totalQueued,
+        totalFetched: totalSaved,
+        totalQueued: totalSaved,
         errors,
       };
     } catch (error: unknown) {
@@ -2207,23 +2245,262 @@ export class AniListCrawlService {
   }
 
   /**
+   * Queue batch save job containing multiple AniList media IDs
+   * Worker will process this batch and queue individual media save jobs with rate limiting
+   *
+   * @param aniListIds - Array of AniList media IDs to save
+   * @returns Promise with the job ID
+   */
+  private async queueBatchSaveJob(aniListIds: number[]): Promise<string> {
+    if (!this.rabbitMQService) {
+      throw new Error('RabbitMQ service is not available');
+    }
+
+    const jobId = generateJobId();
+    const job: SeriesBatchSaveJob = {
+      jobId,
+      aniListIds,
+      timestamp: new Date().toISOString(),
+    };
+
+    const success = await this.rabbitMQService.sendDataToRabbitMQAsync(
+      JOB_NAME.SERIES_BATCH_SAVE,
+      job as unknown,
+    );
+
+    if (!success) {
+      throw new Error(`Failed to send batch save job to queue: ${jobId}`);
+    }
+
+    this.logger.log(
+      `Batch save job queued: ${jobId} (${aniListIds.length} media items)`,
+    );
+
+    return jobId;
+  }
+
+  /**
+   * Get crawl state from cache
+   * Stores current page number for incremental crawling
+   */
+  private async getCrawlState(
+    type: 'ANIME' | 'MANGA',
+  ): Promise<{ currentPage: number; lastCrawlAt?: string }> {
+    if (!this.cacheService) {
+      return { currentPage: 1 };
+    }
+
+    const cacheKey = `${this.CRAWL_STATE_CACHE_KEY_PREFIX}${type.toLowerCase()}`;
+    const state = await this.cacheService.get<{
+      currentPage: number;
+      lastCrawlAt?: string;
+    }>(cacheKey);
+
+    return state || { currentPage: 1 };
+  }
+
+  /**
+   * Save crawl state to cache
+   */
+  private async saveCrawlState(
+    type: 'ANIME' | 'MANGA',
+    currentPage: number,
+  ): Promise<void> {
+    if (!this.cacheService) {
+      return;
+    }
+
+    const cacheKey = `${this.CRAWL_STATE_CACHE_KEY_PREFIX}${type.toLowerCase()}`;
+    const state = {
+      currentPage,
+      lastCrawlAt: new Date().toISOString(),
+    };
+
+    // Cache for 7 days to allow resuming after long periods
+    await this.cacheService.set(cacheKey, state, 7 * 24 * 60 * 60);
+  }
+
+  /**
+   * Reset crawl state (start from page 1)
+   */
+  async resetCrawlState(type: 'ANIME' | 'MANGA'): Promise<void> {
+    if (!this.cacheService) {
+      return;
+    }
+
+    const cacheKey = `${this.CRAWL_STATE_CACHE_KEY_PREFIX}${type.toLowerCase()}`;
+    await this.cacheService.delete(cacheKey);
+    this.logger.log(`Crawl state reset for ${type}`);
+  }
+
+  /**
+   * Incremental crawl job - crawls data from AniList gradually
+   * Runs every hour to crawl a few pages at a time
+   * Uses queue to save each media item asynchronously
+   * Maintains state to continue from last position
+   */
+  @Cron(CronExpression.EVERY_HOUR)
+  async incrementalCrawl(): Promise<void> {
+    this.logger.log('Starting incremental AniList crawl job');
+
+    try {
+      // Crawl anime incrementally
+      await this.incrementalCrawlByType('ANIME');
+
+      // Add delay between types to respect rate limits
+      await new Promise((resolve) => setTimeout(resolve, 5000)); // 5 second delay
+
+      // Crawl manga incrementally
+      await this.incrementalCrawlByType('MANGA');
+
+      this.logger.log('Incremental AniList crawl job completed successfully');
+    } catch (error: unknown) {
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(
+        `Incremental AniList crawl job failed: ${errorMessage}`,
+      );
+    }
+  }
+
+  /**
+   * Incremental crawl for a specific media type
+   * Crawls PAGES_PER_RUN pages starting from the last saved position
+   */
+  private async incrementalCrawlByType(type: 'ANIME' | 'MANGA'): Promise<void> {
+    // Check if RabbitMQ service is available
+    if (!this.rabbitMQService) {
+      this.logger.warn(
+        'RabbitMQ service is not available. Skipping incremental crawl.',
+      );
+      return;
+    }
+
+    // Get current crawl state
+    const state = await this.getCrawlState(type);
+    const startPage = state.currentPage;
+
+    this.logger.log(
+      `Starting incremental crawl for ${type} from page ${startPage}`,
+    );
+
+    let currentPage = startPage;
+    let hasNextPage = true;
+    let pagesCrawled = 0;
+    let totalQueued = 0;
+    let errors = 0;
+
+    try {
+      // Crawl PAGES_PER_RUN pages or until no more pages
+      while (
+        hasNextPage &&
+        pagesCrawled < this.PAGES_PER_RUN &&
+        currentPage <= startPage + this.PAGES_PER_RUN
+      ) {
+        this.logger.log(
+          `Fetching page ${currentPage} of ${type} media from AniList... (Rate limit: ${this.rateLimitRemaining}/${this.rateLimitLimit} remaining)`,
+        );
+
+        try {
+          const pageData = await this.fetchMediaFromAniList(
+            currentPage,
+            this.PER_PAGE,
+          );
+
+          const mediaList = pageData.Page.media;
+          const pageInfo = pageData.Page.pageInfo;
+
+          this.logger.log(
+            `Fetched ${mediaList.length} media items from page ${currentPage}`,
+          );
+
+          // Queue each media item for processing by worker
+          for (const media of mediaList) {
+            try {
+              // Send media ID to queue for saving
+              await this.fetchAndSaveMediaById(media.id);
+              totalQueued++;
+            } catch (error: unknown) {
+              errors++;
+              const errorMessage =
+                error instanceof Error ? error.message : 'Unknown error';
+              this.logger.error(
+                `Failed to queue media ${media.id}: ${errorMessage}`,
+              );
+            }
+          }
+
+          // Check if there are more pages
+          hasNextPage = pageInfo.hasNextPage;
+          pagesCrawled++;
+
+          // Save progress after each page
+          if (hasNextPage) {
+            await this.saveCrawlState(type, currentPage + 1);
+            this.logger.log(
+              `Page ${currentPage} completed. ${totalQueued} items queued. Progress saved. Rate limit: ${this.rateLimitRemaining}/${this.rateLimitLimit} remaining.`,
+            );
+          } else {
+            // Reached the end, reset to page 1 for next cycle
+            await this.resetCrawlState(type);
+            this.logger.log(
+              `Reached end of ${type} media. Reset to page 1 for next cycle.`,
+            );
+          }
+
+          currentPage++;
+
+          // Add small delay between pages to respect rate limits
+          if (hasNextPage && pagesCrawled < this.PAGES_PER_RUN) {
+            await new Promise((resolve) => setTimeout(resolve, 1000)); // 1 second delay
+          }
+        } catch (error: unknown) {
+          errors++;
+          const errorMessage =
+            error instanceof Error ? error.message : 'Unknown error';
+          this.logger.error(
+            `Failed to fetch page ${currentPage} of ${type}: ${errorMessage}`,
+          );
+
+          // If error occurs, save current page to retry next time
+          await this.saveCrawlState(type, currentPage);
+          break; // Stop crawling on error
+        }
+      }
+
+      this.logger.log(
+        `Incremental crawl completed for ${type}. Pages crawled: ${pagesCrawled}, Items queued: ${totalQueued}, Errors: ${errors}, Next page: ${currentPage}`,
+      );
+    } catch (error: unknown) {
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(
+        `Incremental crawl failed for ${type}: ${errorMessage}`,
+      );
+      // Save current page on error to resume later
+      await this.saveCrawlState(type, currentPage);
+    }
+  }
+
+  /**
    * Cron job to crawl AniList data periodically
    * Runs daily at 2 AM to fetch latest media data
+   * @deprecated Use incrementalCrawl instead for gradual crawling
    */
   @Cron(CronExpression.EVERY_DAY_AT_2AM)
   async scheduledCrawl(): Promise<void> {
     this.logger.log('Starting scheduled AniList crawl job');
 
     try {
-      // Crawl anime (limit to first 10 pages = 500 items per run to avoid long execution)
-      const animeStats = await this.crawlAniListMedia('ANIME', 10);
+      // Crawl anime (all pages)
+      const animeStats = await this.crawlAniListMedia('ANIME');
       this.logger.log(`Anime crawl completed: ${JSON.stringify(animeStats)}`);
 
       // Add delay between types
       await new Promise((resolve) => setTimeout(resolve, 5000)); // 5 second delay
 
-      // Crawl manga (limit to first 10 pages = 500 items per run)
-      const mangaStats = await this.crawlAniListMedia('MANGA', 10);
+      // Crawl manga (all pages)
+      const mangaStats = await this.crawlAniListMedia('MANGA');
       this.logger.log(`Manga crawl completed: ${JSON.stringify(mangaStats)}`);
 
       this.logger.log('Scheduled AniList crawl job completed successfully');
@@ -2238,17 +2515,13 @@ export class AniListCrawlService {
    * Manual crawl method for testing or on-demand updates
    *
    * This method triggers a crawl job by sending it to queue.
-   * Worker will handle the actual crawling process.
+   * Worker will handle the actual crawling process (all pages).
    *
    * @param type - Media type to crawl
-   * @param maxPages - Maximum number of pages to crawl
    * @returns Promise with the job ID
    */
-  async manualCrawl(
-    type: 'ANIME' | 'MANGA' = 'ANIME',
-    maxPages: number = 1,
-  ): Promise<string> {
-    return this.crawlAniListMedia(type, maxPages);
+  async manualCrawl(type: 'ANIME' | 'MANGA' = 'ANIME'): Promise<string> {
+    return this.crawlAniListMedia(type);
   }
 
   /**

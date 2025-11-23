@@ -51,6 +51,29 @@ export interface SeriesCrawlJob {
 }
 
 /**
+ * Series Batch Save Job Interface
+ *
+ * Interface for batch save jobs containing multiple AniList media IDs
+ * Worker will queue each media ID individually to SERIES_SAVE queue with rate limiting
+ */
+export interface SeriesBatchSaveJob {
+  /**
+   * Unique job identifier
+   */
+  jobId: string;
+
+  /**
+   * Array of AniList media IDs to save
+   */
+  aniListIds: number[];
+
+  /**
+   * Timestamp when the job was created
+   */
+  timestamp: string;
+}
+
+/**
  * Series Save Job Result
  *
  * Result returned after processing series save job

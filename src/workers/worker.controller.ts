@@ -8,6 +8,7 @@ import {
 
 import { AnalyticsQueueJob } from 'src/analytics/interfaces/analytics-queue.interface';
 import {
+  SeriesBatchSaveJob,
   SeriesCrawlJob,
   SeriesSaveJob,
 } from 'src/series/services/series-queue.interface';
@@ -476,13 +477,45 @@ export class WorkerController {
       }
 
       console.log('Series crawl job received:', job.jobId);
+      channel.ack(originalMsg);
 
       await this.workerService.processSeriesCrawl(job);
 
       // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
-      channel.ack(originalMsg);
     } catch (error: unknown) {
       console.log('Error processing series crawl:', error);
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
+      channel.nack(originalMsg, false, true);
+    }
+  }
+
+  @MessagePattern(JOB_NAME.SERIES_BATCH_SAVE)
+  async handleSeriesBatchSave(
+    @Payload() job: SeriesBatchSaveJob | string,
+    @Ctx() context: RmqContext,
+  ) {
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+    const channel = context.getChannelRef();
+    const originalMsg = context.getMessage();
+    try {
+      // Parse job if it's a string
+      let parsedJob: SeriesBatchSaveJob;
+      if (typeof job === 'string') {
+        parsedJob = JSON.parse(job) as SeriesBatchSaveJob;
+      } else {
+        parsedJob = job;
+      }
+
+      console.log(
+        `Series batch save job received: ${parsedJob.jobId} (${parsedJob.aniListIds.length} items)`,
+      );
+
+      await this.workerService.processSeriesBatchSave(parsedJob);
+
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
+      channel.ack(originalMsg);
+    } catch (error: unknown) {
+      console.log('Error processing series batch save:', error);
       // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
       channel.nack(originalMsg, false, true);
     }
