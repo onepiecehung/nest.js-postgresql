@@ -1865,6 +1865,15 @@ export class AniListCrawlService {
         age: staffNode.age || undefined,
         homeTown: staffNode.homeTown || undefined,
         siteUrl: staffNode.siteUrl || undefined,
+        favoriteCount: staffNode.favourites || undefined,
+        imageUrls:
+          staffNode.image && Object.keys(staffNode.image).length > 0
+            ? (Object.fromEntries(
+                Object.entries(staffNode.image).filter(
+                  ([key, value]) => value !== undefined,
+                ),
+              ) as Record<string, string>)
+            : undefined,
       };
 
       if (staff) {

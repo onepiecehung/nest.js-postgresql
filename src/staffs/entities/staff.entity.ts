@@ -94,6 +94,12 @@ export class Staff extends BaseEntityCustom {
   language?: string;
 
   /**
+   * The URLs of the staff images
+   */
+  @Column({ type: 'jsonb', nullable: true })
+  imageUrls?: Record<string, string>;
+
+  /**
    * The ID of the staff image
    */
   @Column({ type: 'bigint', nullable: true })
@@ -199,6 +205,12 @@ export class Staff extends BaseEntityCustom {
     nullable: true,
   })
   notes?: string;
+
+  /**
+   * The number of users who have favorited the staff
+   */
+  @Column({ type: 'int', default: 0 })
+  favoriteCount: number;
 
   /**
    * Staff status
