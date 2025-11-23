@@ -182,6 +182,12 @@ export class Series extends BaseEntityCustom {
   isLicensed?: boolean;
 
   /**
+   * The number of users who have favorited the media
+   */
+  @Column({ type: 'int', default: 0 })
+  favoriteCount: number;
+
+  /**
    * Source type the media was adapted from
    * Examples: ORIGINAL, MANGA, LIGHT_NOVEL, etc.
    */
@@ -268,6 +274,13 @@ export class Series extends BaseEntityCustom {
    */
   @Column({ type: 'jsonb', nullable: true })
   synonyms?: string[];
+
+  /**
+   * The trailer of the media
+   * Stored as JSONB array
+   */
+  @Column({ type: 'jsonb', nullable: true })
+  trailer?: Record<string, string>;
 
   /**
    * A weighted average score of all the user's scores of the media

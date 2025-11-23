@@ -1251,6 +1251,7 @@ export class AniListCrawlService {
    */
   private mapAniListMediaToSeries(anilistMedia: AniListMedia): Partial<Series> {
     const seriesData: Partial<Series> = {
+      favoriteCount: anilistMedia.favourites || 0,
       aniListId: anilistMedia.id.toString(),
       myAnimeListId:
         anilistMedia.idMal !== null && anilistMedia.idMal !== undefined
