@@ -35,6 +35,7 @@ export class MediaController {
   async uploadMedia(
     @UploadedFiles() files: Array<Express.Multer.File>,
     @Request() req: Request & { user: AuthPayload },
+    @Query('folder') customFolder?: string,
   ) {
     if (!files || files.length === 0) {
       throw new HttpException(
@@ -45,7 +46,7 @@ export class MediaController {
       );
     }
 
-    return this.mediaService.uploadMedia(files, req.user.uid);
+    return this.mediaService.uploadMedia(files, req.user.uid, customFolder);
   }
 
   @Get()

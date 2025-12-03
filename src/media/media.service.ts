@@ -80,13 +80,73 @@ export class MediaService extends BaseService<Media> {
   }
 
   /**
+   * Sanitize and validate custom folder path from user input
+   * Prevents path traversal attacks and ensures path is within allowed boundaries
+   * @param customFolder Custom folder path from user
+   * @param baseFolder Base folder from config (e.g., 'media')
+   * @returns Sanitized folder path
+   */
+  private sanitizeFolderPath(
+    customFolder: string | undefined,
+    baseFolder: string,
+  ): string {
+    if (!customFolder) {
+      return baseFolder;
+    }
+
+    // Remove leading/trailing slashes and whitespace
+    let sanitized = customFolder.trim().replace(/^\/+|\/+$/g, '');
+
+    // Prevent path traversal attacks
+    if (
+      sanitized.includes('..') ||
+      sanitized.includes('//') ||
+      sanitized.startsWith('/') ||
+      sanitized.includes('\0')
+    ) {
+      this.logger.warn(
+        `Invalid folder path detected: ${customFolder}, using default folder`,
+      );
+      return baseFolder;
+    }
+
+    // Remove any dangerous characters (control characters, special chars)
+    // eslint-disable-next-line no-control-regex
+    sanitized = sanitized.replace(/[<>:"|?*\u0000-\u001f]/g, '');
+
+    // Limit path depth to prevent abuse (max 5 levels deep)
+    const depth = sanitized.split('/').length;
+    if (depth > 5) {
+      this.logger.warn(
+        `Folder path too deep: ${customFolder}, using default folder`,
+      );
+      return baseFolder;
+    }
+
+    // Limit total path length (max 200 characters)
+    if (sanitized.length > 200) {
+      this.logger.warn(
+        `Folder path too long: ${customFolder}, using default folder`,
+      );
+      return baseFolder;
+    }
+
+    // Combine base folder with custom folder
+    // e.g., 'media' + 'user-uploads' = 'media/user-uploads'
+    return sanitized ? `${baseFolder}/${sanitized}` : baseFolder;
+  }
+
+  /**
    * Upload multiple media files
    * @param files Array of uploaded files
+   * @param userId User ID uploading the files
+   * @param customFolder Optional custom folder path (will be sanitized)
    * @returns Array of created media entities
    */
   async uploadMedia(
     files: Array<Express.Multer.File>,
     userId: string,
+    customFolder?: string,
   ): Promise<Media[]> {
     try {
       if (!files || files.length === 0) {
@@ -98,11 +158,20 @@ export class MediaService extends BaseService<Media> {
         );
       }
 
+      // Sanitize custom folder path if provided
+      const baseFolder =
+        this.configService.get<string>('r2.folders.media') || 'media';
+      const sanitizedFolder = this.sanitizeFolderPath(customFolder, baseFolder);
+
       const mediaData: CreateMediaDto[] = [];
 
       for (const file of files) {
         try {
-          const processedFile = await this.processUploadedFile(file, userId);
+          const processedFile = await this.processUploadedFile(
+            file,
+            userId,
+            sanitizedFolder,
+          );
           mediaData.push(processedFile);
         } catch (error: any) {
           this.logger.error(
@@ -133,11 +202,14 @@ export class MediaService extends BaseService<Media> {
   /**
    * Process a single uploaded file
    * @param file Uploaded file
+   * @param userId User ID uploading the file
+   * @param folder Custom folder path (already sanitized)
    * @returns CreateMediaDto for creating media entity
    */
   private async processUploadedFile(
     file: Express.Multer.File,
     userId: string,
+    folder?: string,
   ): Promise<CreateMediaDto> {
     // Validate file size
     if (file.size > MEDIA_CONSTANTS.SIZE_LIMITS.MAX) {
@@ -195,8 +267,10 @@ export class MediaService extends BaseService<Media> {
         : '1',
     };
     this.logger.log('metadata', metadata);
+    // Use custom folder if provided, otherwise use default from config
+    const uploadFolder = folder || this.configService.get('r2.folders.media');
     const uploadResult = await this.r2Service.uploadFile(uploadBuffer, {
-      folder: this.configService.get('r2.folders.media'),
+      folder: uploadFolder,
       filename: fileName,
       contentType: file.mimetype,
       metadata,
