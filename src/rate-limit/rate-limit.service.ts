@@ -159,8 +159,10 @@ export class RateLimitService implements OnModuleInit {
       // Resolve API key and plan
       const apiKeyResult = await this.resolveApiKey(context.apiKey);
       if (apiKeyResult.kind === 'invalid') {
-        this.logger.debug('Invalid API key, using anonymous plan');
-        return await this.applyRateLimit('anonymous', context);
+        this.logger.debug(
+          'Invalid API key, using matchingPolicy or isWhitelist plan',
+        );
+        // return await this.applyRateLimit('anonymous', context);
       }
 
       if (apiKeyResult.isWhitelist) {
