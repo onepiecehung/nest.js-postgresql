@@ -7,11 +7,18 @@ import { BaseService } from 'src/common/services';
 import { ReactionCount } from 'src/reactions/entities/reaction-count.entity';
 import { ReactionsService } from 'src/reactions/reactions.service';
 import { CacheService } from 'src/shared/services';
-import { DeepPartial, Repository } from 'typeorm';
+import {
+  DeepPartial,
+  FindOptionsRelations,
+  FindOptionsSelect,
+  Repository,
+} from 'typeorm';
 import { Series } from './entities/series.entity';
 
 @Injectable()
 export class SeriesService extends BaseService<Series> {
+  private readonly relationsWhitelist: FindOptionsRelations<Series>;
+  private readonly selectWhitelist: FindOptionsSelect<Series> | undefined;
   constructor(
     @InjectRepository(Series)
     private readonly seriesRepository: Repository<Series>,
@@ -63,11 +70,13 @@ export class SeriesService extends BaseService<Series> {
           countryOfOrigin: true,
           isLicensed: true,
           source: true,
+          coverImageUrls: true,
           coverImage: {
             id: true,
             url: true,
             type: true,
           },
+          bannerImageUrl: true,
           bannerImage: {
             id: true,
             url: true,
@@ -87,7 +96,7 @@ export class SeriesService extends BaseService<Series> {
           releasingStatus: true,
           externalLinks: true,
           streamingEpisodes: true,
-          metadata: true,
+          // metadata: true,
           createdAt: true,
           updatedAt: true,
           genres: {
@@ -158,6 +167,11 @@ export class SeriesService extends BaseService<Series> {
       },
       cacheService,
     );
+    this.relationsWhitelist = {
+      genres: {
+        genre: true,
+      },
+    };
   }
 
   /**
@@ -243,7 +257,9 @@ export class SeriesService extends BaseService<Series> {
   async findAll(
     paginationDto: AdvancedPaginationDto,
   ): Promise<IPagination<Series>> {
-    return this.listOffset(paginationDto);
+    return this.listOffset(paginationDto, undefined, {
+      relations: this.relationsWhitelist,
+    });
   }
 
   /**

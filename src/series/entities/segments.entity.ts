@@ -1,7 +1,9 @@
 import { Media } from 'src/media/entities/media.entity';
+import { Organization } from 'src/organizations/entities/organization.entity';
 import { SERIES_SEGMENT_CONSTANTS } from 'src/shared/constants/segment.constants';
 import { BaseEntityCustom } from 'src/shared/entities/base.entity';
-import { Column, Entity, ManyToOne, OneToMany } from 'typeorm';
+import { User } from 'src/users/entities/user.entity';
+import { Column, Entity, JoinColumn, ManyToOne, OneToMany } from 'typeorm';
 import { Series } from './series.entity';
 
 /**
@@ -43,6 +45,32 @@ export class Segments extends BaseEntityCustom {
     onDelete: 'CASCADE',
   })
   series: Series;
+
+  /**
+   * The ID of the user who created the segment.
+   */
+  @Column({ type: 'bigint', nullable: true })
+  userId?: string;
+
+  /**
+   * The user who created the segment.
+   */
+  @ManyToOne(() => User, { nullable: true })
+  @JoinColumn({ name: 'userId', referencedColumnName: 'id' })
+  user?: User;
+
+  /**
+   * The ID of the organization that created the segment.
+   */
+  @Column({ type: 'bigint', nullable: true })
+  organizationId?: string;
+
+  /**
+   * The organization that created the segment.
+   */
+  @ManyToOne(() => Organization, { nullable: true })
+  @JoinColumn({ name: 'organizationId', referencedColumnName: 'id' })
+  organization?: Organization;
 
   /**
    * Segment type identifier.
@@ -223,6 +251,11 @@ export class Segments extends BaseEntityCustom {
    */
   @Column({ type: 'boolean', default: false })
   isNsfw: boolean;
+
+  @OneToMany(() => Media, (media) => media.segment, {
+    cascade: true,
+  })
+  attachments: Media[];
 
   /**
    * Flexible metadata storage as JSONB.
