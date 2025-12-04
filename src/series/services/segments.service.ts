@@ -12,6 +12,7 @@ import {
   FindOptionsWhere,
   Repository,
 } from 'typeorm';
+import { QuerySegmentCursorDto } from '../dto/query-segment-cursor.dto';
 import { Segments } from '../entities/segments.entity';
 
 /**
@@ -277,9 +278,17 @@ export class SegmentsService extends BaseService<Segments> {
    */
   async findBySeriesIdCursor(
     seriesId: string,
-    paginationDto: CursorPaginationDto,
+    paginationDto: QuerySegmentCursorDto,
   ): Promise<IPaginationCursor<Segments>> {
-    return this.listCursor(paginationDto, { seriesId });
+    return this.listCursor(
+      paginationDto,
+      { seriesId, languageCode: paginationDto.languageCode },
+      {
+        relations: {
+          user: true,
+        },
+      },
+    );
   }
 
   /**

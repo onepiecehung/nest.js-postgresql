@@ -13,4 +13,12 @@ export class QuerySegmentCursorDto extends CursorPaginationDto {
   @IsOptional()
   @IsString()
   seriesId?: string;
+
+  /**
+   * Filter by language code
+   * Optional - filter segments by language code
+   */
+  @IsOptional()
+  @IsString()
+  languageCode?: string;
 }
