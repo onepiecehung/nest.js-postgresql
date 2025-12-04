@@ -1,5 +1,4 @@
 import { AdvancedPaginationDto } from 'src/common/dto';
-import { USER_CONSTANTS } from 'src/shared/constants';
 import {
   Between,
   FindOptionsWhere,
@@ -8,7 +7,6 @@ import {
   LessThanOrEqual,
   Like,
   MoreThanOrEqual,
-  Not,
 } from 'typeorm';
 
 export class ConditionBuilder {
@@ -18,7 +16,7 @@ export class ConditionBuilder {
     extraFilter?: FindOptionsWhere<any>,
   ) {
     let conditions: FindOptionsWhere<any> = {
-      status: Not(USER_CONSTANTS.STATUS.REMOVED),
+      // status: Not(USER_CONSTANTS.STATUS.REMOVED),
     };
     conditions = this.addStatusCondition(conditions, data.status);
     conditions = this.addIdsCondition(conditions, data.ids);

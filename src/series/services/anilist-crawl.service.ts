@@ -2339,7 +2339,7 @@ export class AniListCrawlService {
    * Uses queue to save each media item asynchronously
    * Maintains state to continue from last position
    */
-  @Cron(CronExpression.EVERY_HOUR)
+  // @Cron(CronExpression.EVERY_HOUR)
   async incrementalCrawl(): Promise<void> {
     this.logger.log('Starting incremental AniList crawl job');
 

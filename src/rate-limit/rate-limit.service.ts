@@ -16,21 +16,21 @@ import {
   RateLimitInfo,
   RateLimitResult,
 } from '../common/interface';
+import { CacheService } from '../shared/services/cache/cache.service';
 import {
-  CreatePlanDto,
-  UpdatePlanDto,
   CreateApiKeyDto,
-  UpdateApiKeyDto,
   CreateIpWhitelistDto,
-  UpdateIpWhitelistDto,
+  CreatePlanDto,
   PolicyMatchResponseDto,
+  UpdateApiKeyDto,
+  UpdateIpWhitelistDto,
+  UpdatePlanDto,
 } from './dto';
 import {
   CreateRateLimitPolicyDto,
-  UpdateRateLimitPolicyDto,
   TestPolicyMatchDto,
+  UpdateRateLimitPolicyDto,
 } from './dto/rate-limit-policy.dto';
-import { CacheService } from '../shared/services/cache/cache.service';
 import { ApiKey } from './entities/api-key.entity';
 import { IpWhitelist } from './entities/ip-whitelist.entity';
 import { Plan } from './entities/plan.entity';
@@ -159,8 +159,10 @@ export class RateLimitService implements OnModuleInit {
       // Resolve API key and plan
       const apiKeyResult = await this.resolveApiKey(context.apiKey);
       if (apiKeyResult.kind === 'invalid') {
-        this.logger.debug('Invalid API key, using anonymous plan');
-        return await this.applyRateLimit('anonymous', context);
+        this.logger.debug(
+          'Invalid API key, using matchingPolicy or isWhitelist plan',
+        );
+        // return await this.applyRateLimit('anonymous', context);
       }
 
       if (apiKeyResult.isWhitelist) {
@@ -431,7 +433,12 @@ export class RateLimitService implements OnModuleInit {
 
       let policies: RateLimitPolicy[];
       if (cached) {
-        policies = cached;
+        // Rehydrate cached policies back to class instances to restore methods
+        policies = cached.map((policyData) => {
+          const policy = new RateLimitPolicy();
+          Object.assign(policy, policyData);
+          return policy;
+        });
       } else {
         policies = await this.policyRepo.find({
           where: { enabled: true, status: COMMON_CONSTANTS.STATUS.ACTIVE },
