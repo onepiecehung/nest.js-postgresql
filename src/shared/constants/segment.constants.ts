@@ -16,6 +16,8 @@ export const SERIES_SEGMENT_CONSTANTS = {
     INACTIVE: 'inactive',
     PENDING: 'pending',
     ARCHIVED: 'archived',
+    DRAFT: 'draft',
+    HIDDEN: 'hidden',
   },
 
   // Series segment types
