@@ -23,9 +23,9 @@ export class CreateSegmentDto {
    * The ID of the series this segment belongs to
    * Required field - segment must belong to a series
    */
-  // @IsNotEmpty()
-  // @IsString()
-  // seriesId: string;
+  @IsNotEmpty()
+  @IsString()
+  seriesId: string;
 
   @IsOptional()
   attachmentIds?: string[];

@@ -640,7 +640,7 @@ export class MediaService extends BaseService<Media> {
     tileCols: number;
     version: number;
   }> {
-    const media = await this.findById(id);
+    const media = await this.findOne({ id });
     if (!media) {
       throw new HttpException(
         {
