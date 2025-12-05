@@ -1,5 +1,6 @@
 import { SetMetadata } from '@nestjs/common';
 import { PermissionName } from 'src/shared/constants';
+import { ContextConfig } from 'src/permissions/interfaces/context-resolver.interface';
 
 /**
  * Permission check options for complex logic
@@ -11,8 +12,12 @@ export interface PermissionCheckOptions {
   any?: PermissionName[];
   /** Must have NONE of these permissions (NOT operation) */
   none?: PermissionName[];
-  /** Organization context (optional) */
+  /** Organization context (optional, deprecated - use contexts instead) */
   organizationId?: string;
+  /** Context configurations for resource-specific permission checks */
+  contexts?: ContextConfig[];
+  /** Auto-detect context from request (default: false) */
+  autoDetectContext?: boolean;
 }
 
 /**

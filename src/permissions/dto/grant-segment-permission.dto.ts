@@ -58,4 +58,3 @@ export class GrantSegmentPermissionDto {
   @IsDateString()
   expiresAt?: string;
 }
-

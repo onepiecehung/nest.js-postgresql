@@ -3,7 +3,6 @@ import {
   Body,
   Controller,
   Delete,
-  ForbiddenException,
   Get,
   HttpCode,
   HttpStatus,
@@ -13,10 +12,9 @@ import {
   Query,
   Request,
 } from '@nestjs/common';
-import { Auth } from 'src/common/decorators';
+import { Auth, RequirePermissions } from 'src/common/decorators';
 import { AuthPayload } from 'src/common/interface';
 import { SnowflakeIdPipe } from 'src/common/pipes';
-import { PermissionsService } from 'src/permissions/permissions.service';
 import { CreateSegmentDto, QuerySegmentDto, UpdateSegmentDto } from './dto';
 import { QuerySegmentCursorDto } from './dto/query-segment-cursor.dto';
 import { SegmentsService } from './services/segments.service';
@@ -30,10 +28,7 @@ import { SegmentsService } from './services/segments.service';
  */
 @Controller('segments')
 export class SegmentsController {
-  constructor(
-    private readonly segmentsService: SegmentsService,
-    private readonly permissionsService: PermissionsService,
-  ) {}
+  constructor(private readonly segmentsService: SegmentsService) {}
 
   /**
    * Create a new segment for a series
@@ -208,35 +203,32 @@ export class SegmentsController {
   /**
    * Update a segment
    * Requires authentication and SEGMENTS_UPDATE permission
-   * Checks both general permission (from roles) and segment-specific permission
+   * Automatically checks both general permission (from roles) and segment-specific permission
+   * using context resolver pattern
    * @param id Segment ID (Snowflake ID)
    * @param updateSegmentDto Segment update data
-   * @param req Request object containing authenticated user
    * @returns Updated segment entity
    */
   @Patch(':id')
   @Auth()
+  @RequirePermissions({
+    all: ['SEGMENTS_UPDATE'],
+    contexts: [
+      {
+        type: 'segment',
+        paramName: 'id', // Extract segmentId from :id param
+        required: true,
+      },
+    ],
+  })
   async update(
     @Param('id', SnowflakeIdPipe) id: string,
     @Body() updateSegmentDto: UpdateSegmentDto,
-    @Request() req: Request & { user: AuthPayload },
   ) {
-    // Check if user has permission to update this specific segment
-    const canUpdate = await this.permissionsService.canUpdateSegment(
-      req.user.uid,
-      id,
-    );
-
-    if (!canUpdate) {
-      throw new ForbiddenException({
-        messageKey: 'permission.FORBIDDEN',
-        details: {
-          message: 'You do not have permission to update this segment',
-          segmentId: id,
-          requiredPermission: 'SEGMENTS_UPDATE',
-        },
-      });
-    }
+    // Permission check is handled automatically by PermissionsGuard
+    // It checks:
+    // 1. General SEGMENTS_UPDATE permission (from roles), OR
+    // 2. SEGMENTS_UPDATE permission for this specific segment (from UserPermission)
 
     // Note: seriesId in updateSegmentDto will be ignored by service
     // as it's not allowed to change the parent series

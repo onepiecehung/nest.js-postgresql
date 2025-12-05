@@ -4,8 +4,14 @@ import { CacheModule } from 'src/shared/services';
 import { Role } from './entities/role.entity';
 import { UserPermission } from './entities/user-permission.entity';
 import { UserRole } from './entities/user-role.entity';
+import {
+  ArticleContextResolver,
+  OrganizationContextResolver,
+  SegmentContextResolver,
+} from './resolvers';
 import { PermissionsController } from './permissions.controller';
 import { PermissionsService } from './permissions.service';
+import { ContextResolverService } from './services/context-resolver.service';
 import { AuthPermissionService, UserPermissionService } from './services';
 
 /**
@@ -18,7 +24,20 @@ import { AuthPermissionService, UserPermissionService } from './services';
     CacheModule,
   ],
   controllers: [PermissionsController],
-  providers: [PermissionsService, UserPermissionService, AuthPermissionService],
-  exports: [PermissionsService, UserPermissionService, AuthPermissionService],
+  providers: [
+    PermissionsService,
+    UserPermissionService,
+    AuthPermissionService,
+    ContextResolverService,
+    SegmentContextResolver,
+    OrganizationContextResolver,
+    ArticleContextResolver,
+  ],
+  exports: [
+    PermissionsService,
+    UserPermissionService,
+    AuthPermissionService,
+    ContextResolverService,
+  ],
 })
 export class PermissionsModule {}

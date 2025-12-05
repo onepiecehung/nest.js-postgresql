@@ -1,5 +1,6 @@
 import { FirebaseModule } from 'src/shared/services/firebase/firebase.module';
 import { MailModule } from 'src/shared/services/mail/mail.module';
+import { PermissionsModule } from 'src/permissions/permissions.module';
 import { UsersModule } from 'src/users/users.module';
 
 import { Module } from '@nestjs/common';
@@ -15,6 +16,7 @@ import { MailerEmailOtpSender, RedisOtpStore } from './providers';
     UsersModule,
     MailModule,
     FirebaseModule,
+    PermissionsModule, // Required for PermissionsGuard
     JwtModule.registerAsync({
       global: true,
       useFactory: (configService: ConfigService) => ({

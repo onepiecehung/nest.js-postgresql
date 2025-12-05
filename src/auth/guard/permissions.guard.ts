@@ -13,6 +13,9 @@ import {
   REQUIRE_PERMISSIONS_METADATA,
 } from 'src/common/decorators/permissions.decorator';
 import { AuthPayload } from 'src/common/interface';
+import { PermissionName } from 'src/shared/constants';
+import { PermissionsService } from 'src/permissions/permissions.service';
+import { ContextResolverService } from 'src/permissions/services/context-resolver.service';
 import { UserPermissionService } from 'src/permissions/services/user-permission.service';
 import { USER_CONSTANTS, UserRole } from 'src/shared/constants';
 
@@ -39,6 +42,8 @@ export class PermissionsGuard implements CanActivate {
   constructor(
     private readonly reflector: Reflector,
     private readonly userPermissionService: UserPermissionService,
+    private readonly permissionsService: PermissionsService,
+    private readonly contextResolverService: ContextResolverService,
   ) {}
 
   /**
@@ -185,6 +190,39 @@ export class PermissionsGuard implements CanActivate {
   }
 
   /**
+   * Get all required permissions from options (all + any)
+   * @param options - Permission check options
+   * @returns Array of all required permission names
+   */
+  private getAllRequiredPermissions(
+    options: PermissionCheckOptions,
+  ): PermissionName[] {
+    const permissions: PermissionName[] = [];
+    if (options.all) {
+      permissions.push(...options.all);
+    }
+    if (options.any) {
+      permissions.push(...options.any);
+    }
+    return permissions;
+  }
+
+  /**
+   * Get required permissions for a specific context type
+   * @param options - Permission check options
+   * @param contextType - Context type to get permissions for
+   * @returns Array of permission names required for this context
+   */
+  private getRequiredPermissionsForContext(
+    options: PermissionCheckOptions,
+    contextType: string,
+  ): PermissionName[] {
+    // For now, return all required permissions
+    // In the future, we can add context-specific permission mapping
+    return this.getAllRequiredPermissions(options);
+  }
+
+  /**
    * Handle permission check errors with proper logging and error formatting
    * @param error - The error that occurred
    * @param user - User making the request
@@ -256,40 +294,198 @@ export class PermissionsGuard implements CanActivate {
     }
 
     try {
-      // Get organizationId from request if not provided in decorator
-      let organizationId = permissionOptions.organizationId;
+      // 1. Check general permissions first (without context)
+      const hasGeneralPermissions =
+        await this.userPermissionService.checkPermissions(user.uid, {
+          all: permissionOptions.all,
+          any: permissionOptions.any,
+          none: permissionOptions.none,
+        });
 
-      // Try to get organizationId from request params or body
-      if (!organizationId) {
-        organizationId = this.extractOrganizationIdFromRequest(request);
-      }
+      // If general permissions pass and no context required, allow access
+      if (
+        hasGeneralPermissions &&
+        !permissionOptions.contexts &&
+        !permissionOptions.autoDetectContext
+      ) {
+        // Backward compatibility: check organizationId if provided
+        let organizationId = permissionOptions.organizationId;
+        if (!organizationId) {
+          organizationId = this.extractOrganizationIdFromRequest(request);
+        }
 
-      // Check permissions using cached service
-      const hasRequiredPermissions =
-        await this.userPermissionService.checkPermissions(
-          user.uid,
-          {
-            all: permissionOptions.all,
-            any: permissionOptions.any,
-            none: permissionOptions.none,
-          },
-          organizationId,
-        );
+        if (organizationId) {
+          // Re-check with organization context
+          const hasOrgPermissions =
+            await this.userPermissionService.checkPermissions(
+              user.uid,
+              {
+                all: permissionOptions.all,
+                any: permissionOptions.any,
+                none: permissionOptions.none,
+              },
+              organizationId,
+            );
 
-      if (!hasRequiredPermissions) {
-        const details = {
+          if (!hasOrgPermissions) {
+            throw new ForbiddenException({
+              messageKey: 'auth.FORBIDDEN',
+              details: {
+                userId: user.uid,
+                requiredPermissions: permissionOptions,
+                message: 'Insufficient permissions for this organization',
+              },
+            });
+          }
+        }
+
+        this.logger.debug('Permission check passed (general)', {
           userId: user.uid,
           userRole: user.role,
-          requiredPermissions: permissionOptions,
           organizationId,
-          message: `User ${user.uid} denied access - insufficient permissions`,
-        };
+          requiredPermissions: permissionOptions,
+        });
 
-        this.logger.warn(
-          'Permission check failed - insufficient permissions',
-          details,
+        return true;
+      }
+
+      // 2. Check context-specific permissions if contexts are configured
+      if (permissionOptions.contexts && permissionOptions.contexts.length > 0) {
+        const contexts = await this.contextResolverService.extractContexts(
+          request,
+          permissionOptions.contexts,
         );
 
+        // Check if all required contexts were found
+        const requiredContexts = permissionOptions.contexts.filter(
+          (c) => c.required,
+        );
+        for (const config of requiredContexts) {
+          if (!contexts.has(config.type)) {
+            throw new ForbiddenException({
+              messageKey: 'auth.FORBIDDEN',
+              details: {
+                userId: user.uid,
+                message: `Required context ${config.type} not found in request`,
+              },
+            });
+          }
+        }
+
+        // Check permissions for each context
+        const permissionChecks: Promise<boolean>[] = [];
+
+        for (const [contextType, context] of contexts.entries()) {
+          // Get required permissions for this context
+          const requiredPerms = this.getRequiredPermissionsForContext(
+            permissionOptions,
+            contextType,
+          );
+
+          if (requiredPerms.length === 0) {
+            continue; // No specific permissions required for this context
+          }
+
+          // Check if user has any of the required permissions for this context
+          const checkPromise = this.permissionsService.hasAnyContextPermission(
+            user.uid,
+            requiredPerms,
+            context.type,
+            context.id,
+          );
+
+          permissionChecks.push(checkPromise);
+        }
+
+        // If no context-specific checks needed, fall back to general check
+        if (permissionChecks.length === 0) {
+          if (!hasGeneralPermissions) {
+            throw new ForbiddenException({
+              messageKey: 'auth.FORBIDDEN',
+              details: {
+                userId: user.uid,
+                requiredPermissions: permissionOptions,
+                message: 'Insufficient permissions',
+              },
+            });
+          }
+          return true;
+        }
+
+        // All context checks must pass
+        const contextResults = await Promise.all(permissionChecks);
+        const allContextChecksPassed = contextResults.every(
+          (result) => result === true,
+        );
+
+        if (!allContextChecksPassed) {
+          throw new ForbiddenException({
+            messageKey: 'auth.FORBIDDEN',
+            details: {
+              userId: user.uid,
+              requiredPermissions: permissionOptions,
+              contexts: Array.from(contexts.values()),
+              message: 'Insufficient permissions for resource context',
+            },
+          });
+        }
+
+        this.logger.debug('Permission check passed (context-specific)', {
+          userId: user.uid,
+          contexts: Array.from(contexts.values()),
+          requiredPermissions: permissionOptions,
+        });
+
+        return true;
+      }
+
+      // 3. Auto-detect context if enabled
+      if (permissionOptions.autoDetectContext) {
+        const detectedContext =
+          await this.contextResolverService.autoDetectContext(request);
+
+        if (detectedContext) {
+          // Get required permissions
+          const requiredPerms =
+            this.getAllRequiredPermissions(permissionOptions);
+
+          if (requiredPerms.length > 0) {
+            const hasContextPermission =
+              await this.permissionsService.hasAnyContextPermission(
+                user.uid,
+                requiredPerms,
+                detectedContext.type,
+                detectedContext.id,
+              );
+
+            if (!hasContextPermission) {
+              throw new ForbiddenException({
+                messageKey: 'auth.FORBIDDEN',
+                details: {
+                  userId: user.uid,
+                  context: detectedContext,
+                  requiredPermissions: permissionOptions,
+                  message: 'Insufficient permissions for detected context',
+                },
+              });
+            }
+
+            this.logger.debug(
+              'Permission check passed (auto-detected context)',
+              {
+                userId: user.uid,
+                context: detectedContext,
+                requiredPermissions: permissionOptions,
+              },
+            );
+
+            return true;
+          }
+        }
+      }
+
+      // 4. Fall back to general permission check
+      if (!hasGeneralPermissions) {
         throw new ForbiddenException({
           messageKey: 'auth.FORBIDDEN',
           details: {
@@ -300,10 +496,9 @@ export class PermissionsGuard implements CanActivate {
         });
       }
 
-      this.logger.debug('Permission check passed', {
+      this.logger.debug('Permission check passed (general)', {
         userId: user.uid,
         userRole: user.role,
-        organizationId,
         requiredPermissions: permissionOptions,
       });
 

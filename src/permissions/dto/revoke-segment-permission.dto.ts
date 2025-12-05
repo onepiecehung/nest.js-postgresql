@@ -28,4 +28,3 @@ export class RevokeSegmentPermissionDto {
   @IsEnum(['SEGMENTS_UPDATE', 'SEGMENTS_CREATE'] as any)
   permission: 'SEGMENTS_UPDATE' | 'SEGMENTS_CREATE';
 }
-

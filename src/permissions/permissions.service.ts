@@ -760,4 +760,121 @@ export class PermissionsService
       order: { createdAt: 'DESC' },
     });
   }
+
+  // ==================== GENERIC CONTEXT PERMISSIONS ====================
+
+  /**
+   * Generic method to check if user has permission for a specific resource context
+   * Works with any context type (segment, article, organization, etc.)
+   *
+   * @param userId - User ID
+   * @param permission - Permission name to check
+   * @param contextType - Type of context (e.g., 'segment', 'article')
+   * @param contextId - ID of the resource
+   * @returns true if user has permission (general OR context-specific)
+   */
+  async hasContextPermission(
+    userId: string,
+    permission: PermissionName,
+    contextType: string,
+    contextId: string,
+  ): Promise<boolean> {
+    try {
+      // 1. Check if user has general permission (from roles)
+      const permissionBit = PERMISSIONS[permission];
+      if (!permissionBit) {
+        this.logger.warn(`Invalid permission: ${permission}`);
+        return false;
+      }
+
+      const hasGeneralPermission = await this.hasPermission(
+        userId,
+        permissionBit,
+      );
+
+      if (hasGeneralPermission) {
+        return true; // General permission allows access to all resources
+      }
+
+      // 2. Check if user has specific permission for this context
+      const contextPermission = await this.userPermissionRepository.findOne({
+        where: {
+          userId,
+          permission,
+          contextId,
+          contextType,
+        },
+      });
+
+      if (contextPermission && contextPermission.isValid()) {
+        return true; // Context-specific permission found
+      }
+
+      return false;
+    } catch (error) {
+      this.logger.error(
+        `Error checking context permission for user ${userId}, context ${contextType}:${contextId}, permission ${permission}:`,
+        error,
+      );
+      return false;
+    }
+  }
+
+  /**
+   * Check if user has any of the required permissions for a context
+   * @param userId - User ID
+   * @param permissions - Array of permission names to check
+   * @param contextType - Type of context
+   * @param contextId - ID of the resource
+   * @returns true if user has at least one of the permissions
+   */
+  async hasAnyContextPermission(
+    userId: string,
+    permissions: PermissionName[],
+    contextType: string,
+    contextId: string,
+  ): Promise<boolean> {
+    for (const permission of permissions) {
+      if (
+        await this.hasContextPermission(
+          userId,
+          permission,
+          contextType,
+          contextId,
+        )
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Check if user has all of the required permissions for a context
+   * @param userId - User ID
+   * @param permissions - Array of permission names to check
+   * @param contextType - Type of context
+   * @param contextId - ID of the resource
+   * @returns true if user has all permissions
+   */
+  async hasAllContextPermissions(
+    userId: string,
+    permissions: PermissionName[],
+    contextType: string,
+    contextId: string,
+  ): Promise<boolean> {
+    for (const permission of permissions) {
+      if (
+        !(await this.hasContextPermission(
+          userId,
+          permission,
+          contextType,
+          contextId,
+        ))
+      ) {
+        return false;
+      }
+    }
+    return true;
+  }
 }
