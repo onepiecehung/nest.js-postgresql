@@ -368,13 +368,8 @@ export class PermissionsService
         permissions |= BigInt(role.permissions);
       }
 
-      // 3. Short-circuit for ADMINISTRATOR permission
-      if ((permissions & PERMISSIONS.ADMINISTRATOR) !== 0n) {
-        return {
-          mask: ~0n, // All permissions (all bits set)
-          map: this.permissionsMaskToMap(~0n),
-        };
-      }
+      // Note: No ADMINISTRATOR permission - use role-based checks instead
+      // OWNER role has all permissions by default
 
       return {
         mask: permissions,
@@ -399,10 +394,7 @@ export class PermissionsService
   /**
    * Check if a user has a specific permission
    */
-  async hasPermission(
-    userId: string,
-    permission: bigint,
-  ): Promise<boolean> {
+  async hasPermission(userId: string, permission: bigint): Promise<boolean> {
     const effective = await this.computeEffectivePermissions({
       userId,
     });
@@ -412,9 +404,7 @@ export class PermissionsService
   /**
    * Get user permissions as bitfield (for backward compatibility with existing code)
    */
-  async getUserPermissionsBitfield(
-    userId: string,
-  ): Promise<bigint> {
+  async getUserPermissionsBitfield(userId: string): Promise<bigint> {
     const effective = await this.computeEffectivePermissions({
       userId,
     });
@@ -505,40 +495,39 @@ export class PermissionsService
 
   /**
    * Calculate permissions for moderator role using existing constants
+   * Moderators can read and moderate content, but cannot manage all articles
    */
   private calculateModeratorPermissions(): bigint {
     return (
-      PERMISSIONS.VIEW_CHANNEL |
-      PERMISSIONS.SEND_MESSAGES |
-      PERMISSIONS.READ_MESSAGE_HISTORY |
-      PERMISSIONS.ADD_REACTIONS |
-      PERMISSIONS.EMBED_LINKS |
-      PERMISSIONS.ATTACH_FILES |
-      PERMISSIONS.MENTION_EVERYONE |
-      PERMISSIONS.USE_EXTERNAL_EMOJIS |
-      PERMISSIONS.CONNECT |
-      PERMISSIONS.SPEAK |
-      PERMISSIONS.MUTE_MEMBERS |
-      PERMISSIONS.DEAFEN_MEMBERS |
-      PERMISSIONS.MOVE_MEMBERS |
-      PERMISSIONS.MANAGE_MESSAGES
+      PERMISSIONS.ARTICLE_READ |
+      PERMISSIONS.ARTICLE_UPDATE |
+      PERMISSIONS.SERIES_UPDATE |
+      PERMISSIONS.MEDIA_UPLOAD |
+      PERMISSIONS.STICKER_READ |
+      PERMISSIONS.REPORT_READ |
+      PERMISSIONS.REPORT_MODERATE
     );
   }
 
   /**
    * Calculate permissions for admin role using existing constants
+   * Admins have most permissions but not full owner access
    */
   private calculateAdminPermissions(): bigint {
     return (
       this.calculateModeratorPermissions() |
-      PERMISSIONS.KICK_MEMBERS |
-      PERMISSIONS.BAN_MEMBERS |
-      PERMISSIONS.MANAGE_CHANNELS |
-      PERMISSIONS.MANAGE_ROLES |
-      PERMISSIONS.MANAGE_WEBHOOKS |
-      PERMISSIONS.MANAGE_EMOJIS_AND_STICKERS |
-      PERMISSIONS.VIEW_AUDIT_LOG |
-      PERMISSIONS.VIEW_GUILD_INSIGHTS
+      PERMISSIONS.ARTICLE_CREATE |
+      PERMISSIONS.ARTICLE_MANAGE_ALL |
+      PERMISSIONS.SERIES_CREATE |
+      PERMISSIONS.SEGMENTS_CREATE |
+      PERMISSIONS.SEGMENTS_UPDATE |
+      PERMISSIONS.STICKER_CREATE |
+      PERMISSIONS.STICKER_UPDATE |
+      PERMISSIONS.STICKER_DELETE |
+      PERMISSIONS.ORGANIZATION_MANAGE_MEMBERS |
+      PERMISSIONS.ORGANIZATION_MANAGE_SETTINGS |
+      PERMISSIONS.ORGANIZATION_VIEW_ANALYTICS |
+      PERMISSIONS.ORGANIZATION_INVITE_MEMBERS
     );
   }
 }

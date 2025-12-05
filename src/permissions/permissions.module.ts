@@ -14,11 +14,7 @@ import { AuthPermissionService, UserPermissionService } from './services';
  */
 @Module({
   imports: [
-    TypeOrmModule.forFeature([
-      Role,
-      UserRole,
-      UserPermission,
-    ]),
+    TypeOrmModule.forFeature([Role, UserRole, UserPermission]),
     CacheModule,
   ],
   controllers: [PermissionsController],

@@ -226,27 +226,25 @@ export class UserPermissionService {
    */
 
   async isAdmin(userId: string): Promise<boolean> {
-    return this.hasPermission(userId, 'ADMINISTRATOR');
+    // Check if user has ARTICLE_MANAGE_ALL permission (admin override)
+    return this.hasPermission(userId, 'ARTICLE_MANAGE_ALL');
   }
 
   async isRegularUser(userId: string): Promise<boolean> {
-    return this.checkPermissions(userId, {
-      none: ['ADMINISTRATOR', 'BAN_MEMBERS', 'KICK_MEMBERS'],
-    });
+    // Regular user doesn't have ARTICLE_MANAGE_ALL
+    return !(await this.hasPermission(userId, 'ARTICLE_MANAGE_ALL'));
   }
 
   async canManageContent(userId: string): Promise<boolean> {
     return this.checkPermissions(userId, {
       all: ['ARTICLE_CREATE'],
-      any: ['ARTICLE_EDIT', 'ARTICLE_EDIT'],
-      none: ['ADMINISTRATOR'],
+      any: ['ARTICLE_UPDATE', 'ARTICLE_UPDATE'],
     });
   }
 
   async canModerateContent(userId: string): Promise<boolean> {
     return this.checkPermissions(userId, {
-      any: ['ARTICLE_EDIT', 'COMMENT_EDIT'],
-      none: ['ADMINISTRATOR'],
+      any: ['ARTICLE_UPDATE', 'REPORT_MODERATE'],
     });
   }
 

@@ -116,8 +116,10 @@ export class Role extends BaseEntityCustom {
 
   /**
    * Check if this role has administrator permissions
+   * Checks for ARTICLE_MANAGE_ALL permission as admin indicator
    */
   isAdmin(): boolean {
-    return this.hasPermission(BigInt('8')); // ADMINISTRATOR permission
+    // Use ARTICLE_MANAGE_ALL as admin indicator (bit position 6)
+    return this.hasPermission(1n << 6n); // ARTICLE_MANAGE_ALL permission
   }
 }

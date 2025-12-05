@@ -2,10 +2,7 @@ import { HttpException, HttpStatus } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import {
-  DEFAULT_ROLES,
-  PERMISSIONS,
-} from './constants/permissions.constants';
+import { DEFAULT_ROLES, PERMISSIONS } from './constants/permissions.constants';
 import { AssignRoleDto } from './dto/assign-role.dto';
 import { CreateRoleDto } from './dto/create-role.dto';
 import { EffectivePermissionsDto } from './dto/effective-permissions.dto';
@@ -629,7 +626,6 @@ describe('PermissionsService', () => {
         PERMISSIONS.EMBED_LINKS;
       expect(result.mask).toBe(expectedMask);
     });
-
   });
 
   describe('hasPermission', () => {
