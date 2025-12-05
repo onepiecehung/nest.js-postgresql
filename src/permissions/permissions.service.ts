@@ -14,7 +14,7 @@ import { seedPermissions } from 'src/db/seed/permissions.seed';
 import { UserPermissionService } from 'src/permissions/services/user-permission.service';
 import { PermissionName } from 'src/shared/constants';
 import { CacheService } from 'src/shared/services';
-import { In, Repository } from 'typeorm';
+import { FindOptionsWhere, In, Repository } from 'typeorm';
 import {
   DEFAULT_ROLES,
   EffectivePermissions,
@@ -23,8 +23,11 @@ import {
 import { AssignRoleDto } from './dto/assign-role.dto';
 import { CreateRoleDto } from './dto/create-role.dto';
 import { EffectivePermissionsDto } from './dto/effective-permissions.dto';
+import { GrantSegmentPermissionDto } from './dto/grant-segment-permission.dto';
+import { RevokeSegmentPermissionDto } from './dto/revoke-segment-permission.dto';
 import { UpdateRoleDto } from './dto/update-role.dto';
 import { Role } from './entities/role.entity';
+import { UserPermission } from './entities/user-permission.entity';
 import { UserRole } from './entities/user-role.entity';
 
 /**
@@ -44,6 +47,9 @@ export class PermissionsService
 
     @InjectRepository(UserRole)
     private readonly userRoleRepository: Repository<UserRole>,
+
+    @InjectRepository(UserPermission)
+    private readonly userPermissionRepository: Repository<UserPermission>,
 
     cacheService: CacheService,
 
@@ -368,6 +374,23 @@ export class PermissionsService
         permissions |= BigInt(role.permissions);
       }
 
+      // 3. Add permissions from UserPermission records (context-based permissions)
+      // Note: TypeORM automatically excludes soft-deleted records when using DeleteDateColumn
+      // No need to explicitly check deletedAt: null
+      const userPermissions = await this.userPermissionRepository.find({
+        where: {
+          userId,
+        },
+      });
+
+      // Filter valid (not expired) permissions
+      const validUserPermissions = userPermissions.filter((up) => up.isValid());
+
+      // Combine user-specific permissions with role permissions
+      for (const userPerm of validUserPermissions) {
+        permissions |= userPerm.getValueAsBigInt();
+      }
+
       // Note: No ADMINISTRATOR permission - use role-based checks instead
       // OWNER role has all permissions by default
 
@@ -529,5 +552,212 @@ export class PermissionsService
       PERMISSIONS.ORGANIZATION_VIEW_ANALYTICS |
       PERMISSIONS.ORGANIZATION_INVITE_MEMBERS
     );
+  }
+
+  // ==================== SEGMENT PERMISSIONS MANAGEMENT ====================
+
+  /**
+   * Grant a permission to a user for a specific segment
+   * Creates a UserPermission record with segment context
+   */
+  async grantSegmentPermission(
+    dto: GrantSegmentPermissionDto,
+  ): Promise<UserPermission> {
+    try {
+      // Get permission bitmask
+      const permissionBit = PERMISSIONS[dto.permission];
+      if (!permissionBit) {
+        throw new HttpException(
+          { messageKey: 'permission.INVALID_PERMISSION' },
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+
+      // Check if permission already exists
+      const existing = await this.userPermissionRepository.findOne({
+        where: {
+          userId: dto.userId,
+          permission: dto.permission,
+          contextId: dto.segmentId,
+          contextType: 'segment',
+        },
+      });
+
+      if (existing && !existing.isDeleted()) {
+        throw new HttpException(
+          { messageKey: 'permission.USER_PERMISSION_ALREADY_EXISTS' },
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+
+      // Create or restore permission
+      const userPermissionData = {
+        userId: dto.userId,
+        permission: dto.permission,
+        value: permissionBit.toString(),
+        contextId: dto.segmentId,
+        contextType: 'segment',
+        reason: dto.reason,
+        grantedBy: dto.grantedBy,
+        expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : undefined,
+      };
+
+      let saved: UserPermission;
+      if (existing) {
+        // Restore soft-deleted permission
+        Object.assign(existing, userPermissionData);
+        existing.deletedAt = null;
+        saved = await this.userPermissionRepository.save(existing);
+      } else {
+        saved = await this.userPermissionRepository.save(userPermissionData);
+      }
+
+      // Refresh user's cached permissions
+      await this.userPermissionService.refreshUserPermissions(dto.userId);
+
+      this.logger.log(
+        `Granted ${dto.permission} permission for segment ${dto.segmentId} to user ${dto.userId}`,
+      );
+
+      return saved;
+    } catch (error: any) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      this.logger.error(
+        `Error granting segment permission to user ${dto.userId}:`,
+        error,
+      );
+      throw new HttpException(
+        { messageKey: 'permission.PERMISSION_INTERNAL_SERVER_ERROR' },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * Revoke a permission from a user for a specific segment
+   * Soft deletes the UserPermission record
+   */
+  async revokeSegmentPermission(
+    dto: RevokeSegmentPermissionDto,
+  ): Promise<void> {
+    try {
+      const userPermission = await this.userPermissionRepository.findOne({
+        where: {
+          userId: dto.userId,
+          permission: dto.permission,
+          contextId: dto.segmentId,
+          contextType: 'segment',
+        },
+      });
+
+      if (!userPermission || userPermission.isDeleted()) {
+        throw new HttpException(
+          { messageKey: 'permission.USER_PERMISSION_NOT_FOUND' },
+          HttpStatus.NOT_FOUND,
+        );
+      }
+
+      await this.userPermissionRepository.softDelete(userPermission.id);
+
+      // Refresh user's cached permissions
+      await this.userPermissionService.refreshUserPermissions(dto.userId);
+
+      this.logger.log(
+        `Revoked ${dto.permission} permission for segment ${dto.segmentId} from user ${dto.userId}`,
+      );
+    } catch (error: any) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      this.logger.error(
+        `Error revoking segment permission from user ${dto.userId}:`,
+        error,
+      );
+      throw new HttpException(
+        { messageKey: 'permission.PERMISSION_INTERNAL_SERVER_ERROR' },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * Check if a user can update a specific segment
+   * Returns true if user has:
+   * - General SEGMENTS_UPDATE permission (from roles), OR
+   * - Specific SEGMENTS_UPDATE permission for this segment (from UserPermission)
+   */
+  async canUpdateSegment(userId: string, segmentId: string): Promise<boolean> {
+    try {
+      // 1. Check if user has general SEGMENTS_UPDATE permission (from roles)
+      const hasGeneralPermission = await this.hasPermission(
+        userId,
+        PERMISSIONS.SEGMENTS_UPDATE,
+      );
+
+      if (hasGeneralPermission) {
+        return true;
+      }
+
+      // 2. Check if user has specific permission for this segment
+      const segmentPermission = await this.userPermissionRepository.findOne({
+        where: {
+          userId,
+          permission: 'SEGMENTS_UPDATE',
+          contextId: segmentId,
+          contextType: 'segment',
+        },
+      });
+
+      if (segmentPermission && segmentPermission.isValid()) {
+        return true;
+      }
+
+      return false;
+    } catch (error) {
+      this.logger.error(
+        `Error checking segment update permission for user ${userId} and segment ${segmentId}:`,
+        error,
+      );
+      return false;
+    }
+  }
+
+  /**
+   * Get all segment permissions for a user
+   * Returns all UserPermission records with segment context
+   */
+  async getUserSegmentPermissions(userId: string): Promise<UserPermission[]> {
+    return this.userPermissionRepository.find({
+      where: {
+        userId,
+        contextType: 'segment',
+      },
+      order: { createdAt: 'DESC' },
+    });
+  }
+
+  /**
+   * Get all users who have permission for a specific segment
+   * Returns all UserPermission records for a segment
+   */
+  async getUsersWithSegmentPermission(
+    segmentId: string,
+    permission?: 'SEGMENTS_UPDATE' | 'SEGMENTS_CREATE',
+  ): Promise<UserPermission[]> {
+    const where: FindOptionsWhere<UserPermission> = {
+      contextId: segmentId,
+      contextType: 'segment',
+      ...(permission && { permission }),
+    };
+
+    return this.userPermissionRepository.find({
+      where,
+      relations: ['user'],
+      order: { createdAt: 'DESC' },
+    });
   }
 }

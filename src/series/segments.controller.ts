@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   HttpCode,
   HttpStatus,
@@ -15,6 +16,7 @@ import {
 import { Auth } from 'src/common/decorators';
 import { AuthPayload } from 'src/common/interface';
 import { SnowflakeIdPipe } from 'src/common/pipes';
+import { PermissionsService } from 'src/permissions/permissions.service';
 import { CreateSegmentDto, QuerySegmentDto, UpdateSegmentDto } from './dto';
 import { QuerySegmentCursorDto } from './dto/query-segment-cursor.dto';
 import { SegmentsService } from './services/segments.service';
@@ -28,7 +30,10 @@ import { SegmentsService } from './services/segments.service';
  */
 @Controller('segments')
 export class SegmentsController {
-  constructor(private readonly segmentsService: SegmentsService) {}
+  constructor(
+    private readonly segmentsService: SegmentsService,
+    private readonly permissionsService: PermissionsService,
+  ) {}
 
   /**
    * Create a new segment for a series
@@ -202,9 +207,11 @@ export class SegmentsController {
 
   /**
    * Update a segment
-   * Requires authentication
+   * Requires authentication and SEGMENTS_UPDATE permission
+   * Checks both general permission (from roles) and segment-specific permission
    * @param id Segment ID (Snowflake ID)
    * @param updateSegmentDto Segment update data
+   * @param req Request object containing authenticated user
    * @returns Updated segment entity
    */
   @Patch(':id')
@@ -212,7 +219,25 @@ export class SegmentsController {
   async update(
     @Param('id', SnowflakeIdPipe) id: string,
     @Body() updateSegmentDto: UpdateSegmentDto,
+    @Request() req: Request & { user: AuthPayload },
   ) {
+    // Check if user has permission to update this specific segment
+    const canUpdate = await this.permissionsService.canUpdateSegment(
+      req.user.uid,
+      id,
+    );
+
+    if (!canUpdate) {
+      throw new ForbiddenException({
+        messageKey: 'permission.FORBIDDEN',
+        details: {
+          message: 'You do not have permission to update this segment',
+          segmentId: id,
+          requiredPermission: 'SEGMENTS_UPDATE',
+        },
+      });
+    }
+
     // Note: seriesId in updateSegmentDto will be ignored by service
     // as it's not allowed to change the parent series
     return this.segmentsService.update(id, updateSegmentDto);
