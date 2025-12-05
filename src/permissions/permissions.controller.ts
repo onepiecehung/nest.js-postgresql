@@ -135,10 +135,6 @@ export class PermissionsController {
   }
 
   // ==================== UTILITY ENDPOINTS ====================
-
-  @Post('setup-default-roles')
-  @HttpCode(HttpStatus.CREATED)
-  async createDefaultRoles(): Promise<Role[]> {
-    return this.permissionsService.createDefaultRoles();
-  }
+  // Note: Default roles are now created automatically when creating an organization
+  // This endpoint has been removed as roles must be associated with an organization
 }

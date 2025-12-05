@@ -2,6 +2,7 @@ import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { TypeOrmBaseRepository } from 'src/common/repositories/typeorm.base-repo';
 import { BaseService } from 'src/common/services';
+import { createSlug, generateUniqueSlug } from 'src/common/utils/slug.util';
 import { PermissionsService } from 'src/permissions/permissions.service';
 import { ORGANIZATION_CONSTANTS } from 'src/shared/constants';
 import { CacheService } from 'src/shared/services';
@@ -101,14 +102,10 @@ export class OrganizationsService extends BaseService<Organization> {
       const organization = await this.create(organizationData);
 
       // Create default organization roles using permissions system
+      // Roles are created with unique names per organization to avoid duplicate key conflicts
       try {
-        const defaultRoles = await this.permissionsService.createDefaultRoles();
-
-        // Associate the created roles with this organization
-        for (const role of defaultRoles) {
-          role.organization = organization;
-          await this.permissionsService.update(role.id, { organization });
-        }
+        const defaultRoles =
+          await this.permissionsService.createDefaultRoles(organization);
 
         this.logger.log(
           `Created ${defaultRoles.length} default roles for organization ${organization.id}`,
@@ -265,10 +262,6 @@ export class OrganizationsService extends BaseService<Organization> {
    * @returns Unique slug string
    */
   private async generateUniqueSlug(name: string): Promise<string> {
-    const { createSlug, generateUniqueSlug } = await import(
-      'src/common/utils/slug.util'
-    );
-
     const baseSlug = createSlug(name, {
       maxLength: ORGANIZATION_CONSTANTS.SLUG_MAX_LENGTH,
     });
