@@ -3,7 +3,6 @@ import {
   IsOptional,
   IsString,
   IsUrl,
-  IsUUID,
   Length,
   MaxLength,
 } from 'class-validator';
@@ -74,6 +73,14 @@ export class CreateOrganizationDto {
    * Required field - the user who creates the organization becomes the owner
    */
   @IsString()
-  @IsUUID()
-  ownerId: string;
+  @IsOptional()
+  ownerId?: string;
+
+  /**
+   * Organization logo image ID
+   * Optional field for the organization's logo
+   */
+  @IsOptional()
+  @IsString()
+  logoId?: string;
 }
