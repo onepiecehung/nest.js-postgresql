@@ -79,14 +79,6 @@ export const DEFAULT_ROLES = {
 } as const;
 
 /**
- * Channel overwrite target types
- */
-export enum OverwriteTargetType {
-  ROLE = 'role',
-  MEMBER = 'member',
-}
-
-/**
  * Permission calculation result interface
  */
 export interface EffectivePermissions {

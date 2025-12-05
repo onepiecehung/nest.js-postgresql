@@ -18,21 +18,18 @@ import { In, Repository } from 'typeorm';
 import {
   DEFAULT_ROLES,
   EffectivePermissions,
-  OverwriteTargetType,
   PERMISSIONS,
 } from './constants/permissions.constants';
 import { AssignRoleDto } from './dto/assign-role.dto';
-import { CreateOverwriteDto } from './dto/create-overwrite.dto';
 import { CreateRoleDto } from './dto/create-role.dto';
 import { EffectivePermissionsDto } from './dto/effective-permissions.dto';
 import { UpdateRoleDto } from './dto/update-role.dto';
-import { ChannelOverwrite } from './entities/channel-overwrite.entity';
 import { Role } from './entities/role.entity';
 import { UserRole } from './entities/user-role.entity';
 
 /**
  * Permissions service implementing Discord-style permission system
- * Handles role management, user-role assignments, channel overwrites,
+ * Handles role management, user-role assignments,
  * and effective permission calculations using BigInt bitwise operations
  */
 @Injectable()
@@ -47,9 +44,6 @@ export class PermissionsService
 
     @InjectRepository(UserRole)
     private readonly userRoleRepository: Repository<UserRole>,
-
-    @InjectRepository(ChannelOverwrite)
-    private readonly channelOverwriteRepository: Repository<ChannelOverwrite>,
 
     cacheService: CacheService,
 
@@ -334,105 +328,17 @@ export class PermissionsService
     });
   }
 
-  // ==================== CHANNEL OVERWRITES ====================
-
-  /**
-   * Create or update a channel overwrite
-   */
-  async createOverwrite(dto: CreateOverwriteDto): Promise<ChannelOverwrite> {
-    // Check if overwrite already exists
-    const existing = await this.channelOverwriteRepository.findOne({
-      where: {
-        channelId: dto.channelId,
-        targetId: dto.targetId,
-        targetType: dto.targetType,
-      },
-    });
-
-    if (existing) {
-      // Update existing overwrite
-      existing.allow = dto.allow || '0';
-      existing.deny = dto.deny || '0';
-      existing.reason = dto.reason;
-      const updated = await this.channelOverwriteRepository.save(existing);
-      // TODO: Implement cache invalidation for channel overwrites when needed
-      return updated;
-    }
-
-    // Create new overwrite
-    const overwriteData = {
-      channelId: dto.channelId,
-      targetId: dto.targetId,
-      targetType: dto.targetType,
-      allow: dto.allow || '0',
-      deny: dto.deny || '0',
-      reason: dto.reason,
-    };
-
-    const created = await this.channelOverwriteRepository.save(overwriteData);
-    // TODO: Implement cache invalidation for channel overwrites when needed
-    return created;
-  }
-
-  /**
-   * Get all overwrites for a channel
-   */
-  async getChannelOverwrites(channelId: string): Promise<ChannelOverwrite[]> {
-    return this.channelOverwriteRepository.find({
-      where: { channelId },
-      order: { createdAt: 'ASC' },
-    });
-  }
-
-  /**
-   * Delete a channel overwrite
-   */
-  async deleteOverwrite(
-    channelId: string,
-    targetId: string,
-    targetType: OverwriteTargetType,
-  ): Promise<void> {
-    try {
-      const overwrite = await this.channelOverwriteRepository.findOne({
-        where: { channelId, targetId, targetType },
-      });
-
-      if (!overwrite) {
-        throw new HttpException(
-          { messageKey: 'permission.CHANNEL_OVERWRITE_NOT_FOUND' },
-          HttpStatus.NOT_FOUND,
-        );
-      }
-
-      await this.channelOverwriteRepository.remove(overwrite);
-      // TODO: Implement cache invalidation for channel overwrites when needed
-    } catch (error: any) {
-      if (error instanceof HttpException) {
-        throw error;
-      }
-
-      this.logger.error(
-        `Error deleting channel overwrite for channel ${channelId}, target ${targetId}:`,
-        error,
-      );
-      throw new HttpException(
-        { messageKey: 'permission.PERMISSION_INTERNAL_SERVER_ERROR' },
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
-  }
-
   // ==================== PERMISSION CALCULATION ====================
 
   /**
-   * Compute effective permissions for a user in a channel using Discord algorithm
-   * This implements the canonical Discord permission calculation algorithm
+   * Compute effective permissions for a user based on their roles
+   * Calculates permissions by combining all user roles (OR operation)
    */
   async computeEffectivePermissions(
     dto: EffectivePermissionsDto,
   ): Promise<EffectivePermissions> {
     try {
-      const { userId, channelId } = dto;
+      const { userId } = dto;
 
       if (!userId) {
         throw new HttpException(
@@ -470,64 +376,6 @@ export class PermissionsService
         };
       }
 
-      // If no channel specified, return base permissions
-      if (!channelId) {
-        return {
-          mask: permissions,
-          map: this.permissionsMaskToMap(permissions),
-        };
-      }
-
-      // 4. Apply @everyone overwrite for the channel
-      const everyoneOverwrite = await this.channelOverwriteRepository.findOne({
-        where: {
-          channelId,
-          targetType: OverwriteTargetType.ROLE,
-          targetId: everyoneRole?.id || DEFAULT_ROLES.EVERYONE,
-        },
-      });
-
-      if (everyoneOverwrite) {
-        const deny = BigInt(everyoneOverwrite.deny);
-        const allow = BigInt(everyoneOverwrite.allow);
-        permissions = (permissions & ~deny) | allow;
-      }
-
-      // 5. Aggregate role overwrites (deny first, then allow)
-      let roleDeny = 0n;
-      let roleAllow = 0n;
-
-      const roleOverwrites = await this.channelOverwriteRepository.find({
-        where: {
-          channelId,
-          targetType: OverwriteTargetType.ROLE,
-          targetId: In(roleIds.filter((id) => id !== everyoneRole?.id)),
-        },
-      });
-
-      for (const overwrite of roleOverwrites) {
-        roleDeny |= BigInt(overwrite.deny);
-        roleAllow |= BigInt(overwrite.allow);
-      }
-
-      // Apply role overwrites: deny first, then allow
-      permissions = (permissions & ~roleDeny) | roleAllow;
-
-      // 6. Apply member-specific overwrite (highest priority)
-      const memberOverwrite = await this.channelOverwriteRepository.findOne({
-        where: {
-          channelId,
-          targetType: OverwriteTargetType.MEMBER,
-          targetId: userId,
-        },
-      });
-
-      if (memberOverwrite) {
-        const deny = BigInt(memberOverwrite.deny);
-        const allow = BigInt(memberOverwrite.allow);
-        permissions = (permissions & ~deny) | allow;
-      }
-
       return {
         mask: permissions,
         map: this.permissionsMaskToMap(permissions),
@@ -549,16 +397,14 @@ export class PermissionsService
   }
 
   /**
-   * Check if a user has a specific permission in a channel
+   * Check if a user has a specific permission
    */
   async hasPermission(
     userId: string,
     permission: bigint,
-    channelId?: string,
   ): Promise<boolean> {
     const effective = await this.computeEffectivePermissions({
       userId,
-      channelId,
     });
     return (effective.mask & permission) !== 0n;
   }
@@ -568,11 +414,9 @@ export class PermissionsService
    */
   async getUserPermissionsBitfield(
     userId: string,
-    channelId?: string,
   ): Promise<bigint> {
     const effective = await this.computeEffectivePermissions({
       userId,
-      channelId,
     });
     return effective.mask;
   }

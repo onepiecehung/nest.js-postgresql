@@ -10,23 +10,18 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
-import {
-  EffectivePermissions,
-  OverwriteTargetType,
-} from './constants/permissions.constants';
+import { EffectivePermissions } from './constants/permissions.constants';
 import { AssignRoleDto } from './dto/assign-role.dto';
-import { CreateOverwriteDto } from './dto/create-overwrite.dto';
 import { CreateRoleDto } from './dto/create-role.dto';
 import { EffectivePermissionsDto } from './dto/effective-permissions.dto';
 import { UpdateRoleDto } from './dto/update-role.dto';
-import { ChannelOverwrite } from './entities/channel-overwrite.entity';
 import { Role } from './entities/role.entity';
 import { UserRole } from './entities/user-role.entity';
 import { PermissionsService } from './permissions.service';
 
 /**
  * Permissions controller providing REST API endpoints for Discord-style permission system
- * Handles role management, user-role assignments, channel overwrites, and permission calculations
+ * Handles role management, user-role assignments, and permission calculations
  */
 @Controller('permissions')
 export class PermissionsController {
@@ -89,37 +84,6 @@ export class PermissionsController {
   @Get('roles/:roleId/users')
   async getUsersWithRole(@Param('roleId') roleId: string): Promise<UserRole[]> {
     return this.permissionsService.getUsersWithRole(roleId);
-  }
-
-  // ==================== CHANNEL OVERWRITE ENDPOINTS ====================
-
-  @Post('overwrites')
-  @HttpCode(HttpStatus.CREATED)
-  async createOverwrite(
-    @Body() dto: CreateOverwriteDto,
-  ): Promise<ChannelOverwrite> {
-    return this.permissionsService.createOverwrite(dto);
-  }
-
-  @Get('channels/:channelId/overwrites')
-  async getChannelOverwrites(
-    @Param('channelId') channelId: string,
-  ): Promise<ChannelOverwrite[]> {
-    return this.permissionsService.getChannelOverwrites(channelId);
-  }
-
-  @Delete('channels/:channelId/overwrites/:targetId/:targetType')
-  @HttpCode(HttpStatus.NO_CONTENT)
-  async deleteOverwrite(
-    @Param('channelId') channelId: string,
-    @Param('targetId') targetId: string,
-    @Param('targetType') targetType: OverwriteTargetType,
-  ): Promise<void> {
-    return this.permissionsService.deleteOverwrite(
-      channelId,
-      targetId,
-      targetType,
-    );
   }
 
   // ==================== PERMISSION CALCULATION ENDPOINTS ====================

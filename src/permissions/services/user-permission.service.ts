@@ -34,10 +34,7 @@ export class UserPermissionService {
 
       // Get fresh permissions from database
       const permissions =
-        await this.permissionsService.getUserPermissionsBitfield(
-          userId,
-          organizationId,
-        );
+        await this.permissionsService.getUserPermissionsBitfield(userId);
 
       // Cache with different keys for different contexts
       const cacheKey = this.getCacheKey(userId, organizationId);
@@ -78,10 +75,7 @@ export class UserPermissionService {
       // If not in cache, load from database and cache it
       this.logger.warn(`Cache miss for user ${userId}, loading from database`);
       const permissions =
-        await this.permissionsService.getUserPermissionsBitfield(
-          userId,
-          organizationId,
-        );
+        await this.permissionsService.getUserPermissionsBitfield(userId);
       await this.cacheService.set(
         cacheKey,
         permissions.toString(),
@@ -145,10 +139,7 @@ export class UserPermissionService {
 
       // Get fresh permissions from database
       const permissions =
-        await this.permissionsService.getUserPermissionsBitfield(
-          userId,
-          organizationId,
-        );
+        await this.permissionsService.getUserPermissionsBitfield(userId);
 
       // Update cache
       const cacheKey = this.getCacheKey(userId, organizationId);

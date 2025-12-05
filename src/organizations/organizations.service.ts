@@ -378,7 +378,6 @@ export class OrganizationsService extends BaseService<Organization> {
     return await this.permissionsService.hasPermission(
       userId,
       BigInt(permission),
-      organizationId,
     );
   }
 

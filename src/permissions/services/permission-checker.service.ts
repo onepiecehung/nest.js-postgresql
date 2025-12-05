@@ -27,10 +27,7 @@ export class PermissionChecker {
   ): Promise<boolean> {
     try {
       const userPermissions =
-        await this.permissionsService.getUserPermissionsBitfield(
-          userId,
-          organizationId,
-        );
+        await this.permissionsService.getUserPermissionsBitfield(userId);
       return hasPermission(userPermissions, permission);
     } catch (error) {
       this.logger.error(
@@ -55,10 +52,7 @@ export class PermissionChecker {
   ): Promise<boolean> {
     try {
       const userPermissions =
-        await this.permissionsService.getUserPermissionsBitfield(
-          userId,
-          organizationId,
-        );
+        await this.permissionsService.getUserPermissionsBitfield(userId);
       return checkPermissions(userPermissions, { all: permissions });
     } catch (error) {
       this.logger.error(
@@ -83,10 +77,7 @@ export class PermissionChecker {
   ): Promise<boolean> {
     try {
       const userPermissions =
-        await this.permissionsService.getUserPermissionsBitfield(
-          userId,
-          organizationId,
-        );
+        await this.permissionsService.getUserPermissionsBitfield(userId);
       return checkPermissions(userPermissions, { any: permissions });
     } catch (error) {
       this.logger.error(
@@ -111,10 +102,7 @@ export class PermissionChecker {
   ): Promise<boolean> {
     try {
       const userPermissions =
-        await this.permissionsService.getUserPermissionsBitfield(
-          userId,
-          organizationId,
-        );
+        await this.permissionsService.getUserPermissionsBitfield(userId);
       return checkPermissions(userPermissions, { none: permissions });
     } catch (error) {
       this.logger.error(
@@ -142,10 +130,7 @@ export class PermissionChecker {
   ): Promise<boolean> {
     try {
       const userPermissions =
-        await this.permissionsService.getUserPermissionsBitfield(
-          userId,
-          organizationId,
-        );
+        await this.permissionsService.getUserPermissionsBitfield(userId);
       return checkPermissions(userPermissions, options);
     } catch (error) {
       this.logger.error(
@@ -233,10 +218,7 @@ export class PermissionChecker {
     userId: string,
     organizationId?: string,
   ): Promise<bigint> {
-    return this.permissionsService.getUserPermissionsBitfield(
-      userId,
-      organizationId,
-    );
+    return this.permissionsService.getUserPermissionsBitfield(userId);
   }
 
   /**

@@ -66,6 +66,14 @@ export const PERMISSION_CONSTANTS = {
   SYSTEM_VIEW_ALL_ANALYTICS: 51n, // Allows viewing all analytics
   SYSTEM_MANAGE_USERS: 52n, // Allows managing users
 
+  // Series permissions (custom for our system)
+  SERIES_CREATE: 53n, // Allows creating series
+  SERIES_UPDATE: 54n, // Allows updating series
+
+  // Segments permissions (custom for our system)
+  SEGMENTS_CREATE: 55n, // Allows creating segments
+  SEGMENTS_UPDATE: 56n, // Allows updating segments
+
   // Permission categories for better organization
   CATEGORIES: {
     GENERAL: 'general',
@@ -74,6 +82,8 @@ export const PERMISSION_CONSTANTS = {
     COMMENT: 'comment',
     USER: 'user',
     SYSTEM: 'system',
+    SERIES: 'series',
+    SEGMENTS: 'segments',
   },
 
   // All permissions as a single array for easier iteration
@@ -131,6 +141,10 @@ export const PERMISSION_CONSTANTS = {
     'SYSTEM_MANAGE_ALL_ORGANIZATIONS',
     'SYSTEM_VIEW_ALL_ANALYTICS',
     'SYSTEM_MANAGE_USERS',
+    'SERIES_CREATE',
+    'SERIES_UPDATE',
+    'SEGMENTS_CREATE',
+    'SEGMENTS_UPDATE',
   ],
 
   // Permission bit masks (pre-calculated for performance)
@@ -188,6 +202,10 @@ export const PERMISSION_CONSTANTS = {
     SYSTEM_MANAGE_ALL_ORGANIZATIONS: 1n << 50n,
     SYSTEM_VIEW_ALL_ANALYTICS: 1n << 51n,
     SYSTEM_MANAGE_USERS: 1n << 52n,
+    SERIES_CREATE: 1n << 53n,
+    SERIES_UPDATE: 1n << 54n,
+    SEGMENTS_CREATE: 1n << 55n,
+    SEGMENTS_UPDATE: 1n << 56n,
   },
 } as const;
 
@@ -222,7 +240,11 @@ export const DEFAULT_ROLE_PERMISSIONS_BITFIELD = {
     PERMISSION_CONSTANTS.BIT_MASKS.USER_VIEW_ANALYTICS |
     PERMISSION_CONSTANTS.BIT_MASKS.SYSTEM_MANAGE_ALL_ORGANIZATIONS |
     PERMISSION_CONSTANTS.BIT_MASKS.SYSTEM_VIEW_ALL_ANALYTICS |
-    PERMISSION_CONSTANTS.BIT_MASKS.SYSTEM_MANAGE_USERS,
+    PERMISSION_CONSTANTS.BIT_MASKS.SYSTEM_MANAGE_USERS |
+    PERMISSION_CONSTANTS.BIT_MASKS.SERIES_CREATE |
+    PERMISSION_CONSTANTS.BIT_MASKS.SERIES_UPDATE |
+    PERMISSION_CONSTANTS.BIT_MASKS.SEGMENTS_CREATE |
+    PERMISSION_CONSTANTS.BIT_MASKS.SEGMENTS_UPDATE,
   ADMIN:
     PERMISSION_CONSTANTS.BIT_MASKS.MANAGE_ROLES |
     PERMISSION_CONSTANTS.BIT_MASKS.MANAGE_CHANNELS |
