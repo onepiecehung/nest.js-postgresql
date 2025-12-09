@@ -31,7 +31,7 @@ export class FollowRebuildTask {
    * Rebuild bitsets for users that need it
    * Runs every 5 minutes
    */
-  @Cron(CronExpression.EVERY_5_MINUTES)
+  // @Cron(CronExpression.EVERY_5_MINUTES)
   async rebuildBitsets(): Promise<void> {
     try {
       this.logger.log('🔄 Starting bitset rebuild task');

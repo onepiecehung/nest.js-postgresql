@@ -14,25 +14,25 @@ import { seedPermissions } from 'src/db/seed/permissions.seed';
 import { UserPermissionService } from 'src/permissions/services/user-permission.service';
 import { PermissionName } from 'src/shared/constants';
 import { CacheService } from 'src/shared/services';
-import { In, Repository } from 'typeorm';
+import { FindOptionsWhere, In, Repository } from 'typeorm';
 import {
   DEFAULT_ROLES,
   EffectivePermissions,
-  OverwriteTargetType,
   PERMISSIONS,
 } from './constants/permissions.constants';
 import { AssignRoleDto } from './dto/assign-role.dto';
-import { CreateOverwriteDto } from './dto/create-overwrite.dto';
 import { CreateRoleDto } from './dto/create-role.dto';
 import { EffectivePermissionsDto } from './dto/effective-permissions.dto';
+import { GrantSegmentPermissionDto } from './dto/grant-segment-permission.dto';
+import { RevokeSegmentPermissionDto } from './dto/revoke-segment-permission.dto';
 import { UpdateRoleDto } from './dto/update-role.dto';
-import { ChannelOverwrite } from './entities/channel-overwrite.entity';
 import { Role } from './entities/role.entity';
+import { UserPermission } from './entities/user-permission.entity';
 import { UserRole } from './entities/user-role.entity';
 
 /**
  * Permissions service implementing Discord-style permission system
- * Handles role management, user-role assignments, channel overwrites,
+ * Handles role management, user-role assignments,
  * and effective permission calculations using BigInt bitwise operations
  */
 @Injectable()
@@ -48,8 +48,8 @@ export class PermissionsService
     @InjectRepository(UserRole)
     private readonly userRoleRepository: Repository<UserRole>,
 
-    @InjectRepository(ChannelOverwrite)
-    private readonly channelOverwriteRepository: Repository<ChannelOverwrite>,
+    @InjectRepository(UserPermission)
+    private readonly userPermissionRepository: Repository<UserPermission>,
 
     cacheService: CacheService,
 
@@ -334,105 +334,17 @@ export class PermissionsService
     });
   }
 
-  // ==================== CHANNEL OVERWRITES ====================
-
-  /**
-   * Create or update a channel overwrite
-   */
-  async createOverwrite(dto: CreateOverwriteDto): Promise<ChannelOverwrite> {
-    // Check if overwrite already exists
-    const existing = await this.channelOverwriteRepository.findOne({
-      where: {
-        channelId: dto.channelId,
-        targetId: dto.targetId,
-        targetType: dto.targetType,
-      },
-    });
-
-    if (existing) {
-      // Update existing overwrite
-      existing.allow = dto.allow || '0';
-      existing.deny = dto.deny || '0';
-      existing.reason = dto.reason;
-      const updated = await this.channelOverwriteRepository.save(existing);
-      // TODO: Implement cache invalidation for channel overwrites when needed
-      return updated;
-    }
-
-    // Create new overwrite
-    const overwriteData = {
-      channelId: dto.channelId,
-      targetId: dto.targetId,
-      targetType: dto.targetType,
-      allow: dto.allow || '0',
-      deny: dto.deny || '0',
-      reason: dto.reason,
-    };
-
-    const created = await this.channelOverwriteRepository.save(overwriteData);
-    // TODO: Implement cache invalidation for channel overwrites when needed
-    return created;
-  }
-
-  /**
-   * Get all overwrites for a channel
-   */
-  async getChannelOverwrites(channelId: string): Promise<ChannelOverwrite[]> {
-    return this.channelOverwriteRepository.find({
-      where: { channelId },
-      order: { createdAt: 'ASC' },
-    });
-  }
-
-  /**
-   * Delete a channel overwrite
-   */
-  async deleteOverwrite(
-    channelId: string,
-    targetId: string,
-    targetType: OverwriteTargetType,
-  ): Promise<void> {
-    try {
-      const overwrite = await this.channelOverwriteRepository.findOne({
-        where: { channelId, targetId, targetType },
-      });
-
-      if (!overwrite) {
-        throw new HttpException(
-          { messageKey: 'permission.CHANNEL_OVERWRITE_NOT_FOUND' },
-          HttpStatus.NOT_FOUND,
-        );
-      }
-
-      await this.channelOverwriteRepository.remove(overwrite);
-      // TODO: Implement cache invalidation for channel overwrites when needed
-    } catch (error: any) {
-      if (error instanceof HttpException) {
-        throw error;
-      }
-
-      this.logger.error(
-        `Error deleting channel overwrite for channel ${channelId}, target ${targetId}:`,
-        error,
-      );
-      throw new HttpException(
-        { messageKey: 'permission.PERMISSION_INTERNAL_SERVER_ERROR' },
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
-  }
-
   // ==================== PERMISSION CALCULATION ====================
 
   /**
-   * Compute effective permissions for a user in a channel using Discord algorithm
-   * This implements the canonical Discord permission calculation algorithm
+   * Compute effective permissions for a user based on their roles
+   * Calculates permissions by combining all user roles (OR operation)
    */
   async computeEffectivePermissions(
     dto: EffectivePermissionsDto,
   ): Promise<EffectivePermissions> {
     try {
-      const { userId, channelId } = dto;
+      const { userId } = dto;
 
       if (!userId) {
         throw new HttpException(
@@ -462,71 +374,25 @@ export class PermissionsService
         permissions |= BigInt(role.permissions);
       }
 
-      // 3. Short-circuit for ADMINISTRATOR permission
-      if ((permissions & PERMISSIONS.ADMINISTRATOR) !== 0n) {
-        return {
-          mask: ~0n, // All permissions (all bits set)
-          map: this.permissionsMaskToMap(~0n),
-        };
-      }
-
-      // If no channel specified, return base permissions
-      if (!channelId) {
-        return {
-          mask: permissions,
-          map: this.permissionsMaskToMap(permissions),
-        };
-      }
-
-      // 4. Apply @everyone overwrite for the channel
-      const everyoneOverwrite = await this.channelOverwriteRepository.findOne({
+      // 3. Add permissions from UserPermission records (context-based permissions)
+      // Note: TypeORM automatically excludes soft-deleted records when using DeleteDateColumn
+      // No need to explicitly check deletedAt: null
+      const userPermissions = await this.userPermissionRepository.find({
         where: {
-          channelId,
-          targetType: OverwriteTargetType.ROLE,
-          targetId: everyoneRole?.id || DEFAULT_ROLES.EVERYONE,
+          userId,
         },
       });
 
-      if (everyoneOverwrite) {
-        const deny = BigInt(everyoneOverwrite.deny);
-        const allow = BigInt(everyoneOverwrite.allow);
-        permissions = (permissions & ~deny) | allow;
+      // Filter valid (not expired) permissions
+      const validUserPermissions = userPermissions.filter((up) => up.isValid());
+
+      // Combine user-specific permissions with role permissions
+      for (const userPerm of validUserPermissions) {
+        permissions |= userPerm.getValueAsBigInt();
       }
 
-      // 5. Aggregate role overwrites (deny first, then allow)
-      let roleDeny = 0n;
-      let roleAllow = 0n;
-
-      const roleOverwrites = await this.channelOverwriteRepository.find({
-        where: {
-          channelId,
-          targetType: OverwriteTargetType.ROLE,
-          targetId: In(roleIds.filter((id) => id !== everyoneRole?.id)),
-        },
-      });
-
-      for (const overwrite of roleOverwrites) {
-        roleDeny |= BigInt(overwrite.deny);
-        roleAllow |= BigInt(overwrite.allow);
-      }
-
-      // Apply role overwrites: deny first, then allow
-      permissions = (permissions & ~roleDeny) | roleAllow;
-
-      // 6. Apply member-specific overwrite (highest priority)
-      const memberOverwrite = await this.channelOverwriteRepository.findOne({
-        where: {
-          channelId,
-          targetType: OverwriteTargetType.MEMBER,
-          targetId: userId,
-        },
-      });
-
-      if (memberOverwrite) {
-        const deny = BigInt(memberOverwrite.deny);
-        const allow = BigInt(memberOverwrite.allow);
-        permissions = (permissions & ~deny) | allow;
-      }
+      // Note: No ADMINISTRATOR permission - use role-based checks instead
+      // OWNER role has all permissions by default
 
       return {
         mask: permissions,
@@ -549,16 +415,11 @@ export class PermissionsService
   }
 
   /**
-   * Check if a user has a specific permission in a channel
+   * Check if a user has a specific permission
    */
-  async hasPermission(
-    userId: string,
-    permission: bigint,
-    channelId?: string,
-  ): Promise<boolean> {
+  async hasPermission(userId: string, permission: bigint): Promise<boolean> {
     const effective = await this.computeEffectivePermissions({
       userId,
-      channelId,
     });
     return (effective.mask & permission) !== 0n;
   }
@@ -566,13 +427,9 @@ export class PermissionsService
   /**
    * Get user permissions as bitfield (for backward compatibility with existing code)
    */
-  async getUserPermissionsBitfield(
-    userId: string,
-    channelId?: string,
-  ): Promise<bigint> {
+  async getUserPermissionsBitfield(userId: string): Promise<bigint> {
     const effective = await this.computeEffectivePermissions({
       userId,
-      channelId,
     });
     return effective.mask;
   }
@@ -661,40 +518,363 @@ export class PermissionsService
 
   /**
    * Calculate permissions for moderator role using existing constants
+   * Moderators can read and moderate content, but cannot manage all articles
    */
   private calculateModeratorPermissions(): bigint {
     return (
-      PERMISSIONS.VIEW_CHANNEL |
-      PERMISSIONS.SEND_MESSAGES |
-      PERMISSIONS.READ_MESSAGE_HISTORY |
-      PERMISSIONS.ADD_REACTIONS |
-      PERMISSIONS.EMBED_LINKS |
-      PERMISSIONS.ATTACH_FILES |
-      PERMISSIONS.MENTION_EVERYONE |
-      PERMISSIONS.USE_EXTERNAL_EMOJIS |
-      PERMISSIONS.CONNECT |
-      PERMISSIONS.SPEAK |
-      PERMISSIONS.MUTE_MEMBERS |
-      PERMISSIONS.DEAFEN_MEMBERS |
-      PERMISSIONS.MOVE_MEMBERS |
-      PERMISSIONS.MANAGE_MESSAGES
+      PERMISSIONS.ARTICLE_READ |
+      PERMISSIONS.ARTICLE_UPDATE |
+      PERMISSIONS.SERIES_UPDATE |
+      PERMISSIONS.MEDIA_UPLOAD |
+      PERMISSIONS.STICKER_READ |
+      PERMISSIONS.REPORT_READ |
+      PERMISSIONS.REPORT_MODERATE
     );
   }
 
   /**
    * Calculate permissions for admin role using existing constants
+   * Admins have most permissions but not full owner access
    */
   private calculateAdminPermissions(): bigint {
     return (
       this.calculateModeratorPermissions() |
-      PERMISSIONS.KICK_MEMBERS |
-      PERMISSIONS.BAN_MEMBERS |
-      PERMISSIONS.MANAGE_CHANNELS |
-      PERMISSIONS.MANAGE_ROLES |
-      PERMISSIONS.MANAGE_WEBHOOKS |
-      PERMISSIONS.MANAGE_EMOJIS_AND_STICKERS |
-      PERMISSIONS.VIEW_AUDIT_LOG |
-      PERMISSIONS.VIEW_GUILD_INSIGHTS
+      PERMISSIONS.ARTICLE_CREATE |
+      PERMISSIONS.ARTICLE_MANAGE_ALL |
+      PERMISSIONS.SERIES_CREATE |
+      PERMISSIONS.SEGMENTS_CREATE |
+      PERMISSIONS.SEGMENTS_UPDATE |
+      PERMISSIONS.STICKER_CREATE |
+      PERMISSIONS.STICKER_UPDATE |
+      PERMISSIONS.STICKER_DELETE |
+      PERMISSIONS.ORGANIZATION_MANAGE_MEMBERS |
+      PERMISSIONS.ORGANIZATION_MANAGE_SETTINGS |
+      PERMISSIONS.ORGANIZATION_VIEW_ANALYTICS |
+      PERMISSIONS.ORGANIZATION_INVITE_MEMBERS
     );
+  }
+
+  // ==================== SEGMENT PERMISSIONS MANAGEMENT ====================
+
+  /**
+   * Grant a permission to a user for a specific segment
+   * Creates a UserPermission record with segment context
+   */
+  async grantSegmentPermission(
+    dto: GrantSegmentPermissionDto,
+  ): Promise<UserPermission> {
+    try {
+      // Get permission bitmask
+      const permissionBit = PERMISSIONS[dto.permission];
+      if (!permissionBit) {
+        throw new HttpException(
+          { messageKey: 'permission.INVALID_PERMISSION' },
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+
+      // Check if permission already exists
+      const existing = await this.userPermissionRepository.findOne({
+        where: {
+          userId: dto.userId,
+          permission: dto.permission,
+          contextId: dto.segmentId,
+          contextType: 'segment',
+        },
+      });
+
+      if (existing && !existing.isDeleted()) {
+        throw new HttpException(
+          { messageKey: 'permission.USER_PERMISSION_ALREADY_EXISTS' },
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+
+      // Create or restore permission
+      const userPermissionData = {
+        userId: dto.userId,
+        permission: dto.permission,
+        value: permissionBit.toString(),
+        contextId: dto.segmentId,
+        contextType: 'segment',
+        reason: dto.reason,
+        grantedBy: dto.grantedBy,
+        expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : undefined,
+      };
+
+      let saved: UserPermission;
+      if (existing) {
+        // Restore soft-deleted permission
+        Object.assign(existing, userPermissionData);
+        existing.deletedAt = null;
+        saved = await this.userPermissionRepository.save(existing);
+      } else {
+        saved = await this.userPermissionRepository.save(userPermissionData);
+      }
+
+      // Refresh user's cached permissions
+      await this.userPermissionService.refreshUserPermissions(dto.userId);
+
+      this.logger.log(
+        `Granted ${dto.permission} permission for segment ${dto.segmentId} to user ${dto.userId}`,
+      );
+
+      return saved;
+    } catch (error: any) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      this.logger.error(
+        `Error granting segment permission to user ${dto.userId}:`,
+        error,
+      );
+      throw new HttpException(
+        { messageKey: 'permission.PERMISSION_INTERNAL_SERVER_ERROR' },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * Revoke a permission from a user for a specific segment
+   * Soft deletes the UserPermission record
+   */
+  async revokeSegmentPermission(
+    dto: RevokeSegmentPermissionDto,
+  ): Promise<void> {
+    try {
+      const userPermission = await this.userPermissionRepository.findOne({
+        where: {
+          userId: dto.userId,
+          permission: dto.permission,
+          contextId: dto.segmentId,
+          contextType: 'segment',
+        },
+      });
+
+      if (!userPermission || userPermission.isDeleted()) {
+        throw new HttpException(
+          { messageKey: 'permission.USER_PERMISSION_NOT_FOUND' },
+          HttpStatus.NOT_FOUND,
+        );
+      }
+
+      await this.userPermissionRepository.softDelete(userPermission.id);
+
+      // Refresh user's cached permissions
+      await this.userPermissionService.refreshUserPermissions(dto.userId);
+
+      this.logger.log(
+        `Revoked ${dto.permission} permission for segment ${dto.segmentId} from user ${dto.userId}`,
+      );
+    } catch (error: any) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      this.logger.error(
+        `Error revoking segment permission from user ${dto.userId}:`,
+        error,
+      );
+      throw new HttpException(
+        { messageKey: 'permission.PERMISSION_INTERNAL_SERVER_ERROR' },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * Check if a user can update a specific segment
+   * Returns true if user has:
+   * - General SEGMENTS_UPDATE permission (from roles), OR
+   * - Specific SEGMENTS_UPDATE permission for this segment (from UserPermission)
+   */
+  async canUpdateSegment(userId: string, segmentId: string): Promise<boolean> {
+    try {
+      // 1. Check if user has general SEGMENTS_UPDATE permission (from roles)
+      const hasGeneralPermission = await this.hasPermission(
+        userId,
+        PERMISSIONS.SEGMENTS_UPDATE,
+      );
+
+      if (hasGeneralPermission) {
+        return true;
+      }
+
+      // 2. Check if user has specific permission for this segment
+      const segmentPermission = await this.userPermissionRepository.findOne({
+        where: {
+          userId,
+          permission: 'SEGMENTS_UPDATE',
+          contextId: segmentId,
+          contextType: 'segment',
+        },
+      });
+
+      if (segmentPermission && segmentPermission.isValid()) {
+        return true;
+      }
+
+      return false;
+    } catch (error) {
+      this.logger.error(
+        `Error checking segment update permission for user ${userId} and segment ${segmentId}:`,
+        error,
+      );
+      return false;
+    }
+  }
+
+  /**
+   * Get all segment permissions for a user
+   * Returns all UserPermission records with segment context
+   */
+  async getUserSegmentPermissions(userId: string): Promise<UserPermission[]> {
+    return this.userPermissionRepository.find({
+      where: {
+        userId,
+        contextType: 'segment',
+      },
+      order: { createdAt: 'DESC' },
+    });
+  }
+
+  /**
+   * Get all users who have permission for a specific segment
+   * Returns all UserPermission records for a segment
+   */
+  async getUsersWithSegmentPermission(
+    segmentId: string,
+    permission?: 'SEGMENTS_UPDATE' | 'SEGMENTS_CREATE',
+  ): Promise<UserPermission[]> {
+    const where: FindOptionsWhere<UserPermission> = {
+      contextId: segmentId,
+      contextType: 'segment',
+      ...(permission && { permission }),
+    };
+
+    return this.userPermissionRepository.find({
+      where,
+      relations: ['user'],
+      order: { createdAt: 'DESC' },
+    });
+  }
+
+  // ==================== GENERIC CONTEXT PERMISSIONS ====================
+
+  /**
+   * Generic method to check if user has permission for a specific resource context
+   * Works with any context type (segment, article, organization, etc.)
+   *
+   * @param userId - User ID
+   * @param permission - Permission name to check
+   * @param contextType - Type of context (e.g., 'segment', 'article')
+   * @param contextId - ID of the resource
+   * @returns true if user has permission (general OR context-specific)
+   */
+  async hasContextPermission(
+    userId: string,
+    permission: PermissionName,
+    contextType: string,
+    contextId: string,
+  ): Promise<boolean> {
+    try {
+      // 1. Check if user has general permission (from roles)
+      const permissionBit = PERMISSIONS[permission];
+      if (!permissionBit) {
+        this.logger.warn(`Invalid permission: ${permission}`);
+        return false;
+      }
+
+      const hasGeneralPermission = await this.hasPermission(
+        userId,
+        permissionBit,
+      );
+
+      if (hasGeneralPermission) {
+        return true; // General permission allows access to all resources
+      }
+
+      // 2. Check if user has specific permission for this context
+      const contextPermission = await this.userPermissionRepository.findOne({
+        where: {
+          userId,
+          permission,
+          contextId,
+          contextType,
+        },
+      });
+
+      if (contextPermission && contextPermission.isValid()) {
+        return true; // Context-specific permission found
+      }
+
+      return false;
+    } catch (error) {
+      this.logger.error(
+        `Error checking context permission for user ${userId}, context ${contextType}:${contextId}, permission ${permission}:`,
+        error,
+      );
+      return false;
+    }
+  }
+
+  /**
+   * Check if user has any of the required permissions for a context
+   * @param userId - User ID
+   * @param permissions - Array of permission names to check
+   * @param contextType - Type of context
+   * @param contextId - ID of the resource
+   * @returns true if user has at least one of the permissions
+   */
+  async hasAnyContextPermission(
+    userId: string,
+    permissions: PermissionName[],
+    contextType: string,
+    contextId: string,
+  ): Promise<boolean> {
+    for (const permission of permissions) {
+      if (
+        await this.hasContextPermission(
+          userId,
+          permission,
+          contextType,
+          contextId,
+        )
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Check if user has all of the required permissions for a context
+   * @param userId - User ID
+   * @param permissions - Array of permission names to check
+   * @param contextType - Type of context
+   * @param contextId - ID of the resource
+   * @returns true if user has all permissions
+   */
+  async hasAllContextPermissions(
+    userId: string,
+    permissions: PermissionName[],
+    contextType: string,
+    contextId: string,
+  ): Promise<boolean> {
+    for (const permission of permissions) {
+      if (
+        !(await this.hasContextPermission(
+          userId,
+          permission,
+          contextType,
+          contextId,
+        ))
+      ) {
+        return false;
+      }
+    }
+    return true;
   }
 }

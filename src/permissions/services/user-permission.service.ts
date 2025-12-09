@@ -34,10 +34,7 @@ export class UserPermissionService {
 
       // Get fresh permissions from database
       const permissions =
-        await this.permissionsService.getUserPermissionsBitfield(
-          userId,
-          organizationId,
-        );
+        await this.permissionsService.getUserPermissionsBitfield(userId);
 
       // Cache with different keys for different contexts
       const cacheKey = this.getCacheKey(userId, organizationId);
@@ -78,10 +75,7 @@ export class UserPermissionService {
       // If not in cache, load from database and cache it
       this.logger.warn(`Cache miss for user ${userId}, loading from database`);
       const permissions =
-        await this.permissionsService.getUserPermissionsBitfield(
-          userId,
-          organizationId,
-        );
+        await this.permissionsService.getUserPermissionsBitfield(userId);
       await this.cacheService.set(
         cacheKey,
         permissions.toString(),
@@ -145,10 +139,7 @@ export class UserPermissionService {
 
       // Get fresh permissions from database
       const permissions =
-        await this.permissionsService.getUserPermissionsBitfield(
-          userId,
-          organizationId,
-        );
+        await this.permissionsService.getUserPermissionsBitfield(userId);
 
       // Update cache
       const cacheKey = this.getCacheKey(userId, organizationId);
@@ -235,27 +226,25 @@ export class UserPermissionService {
    */
 
   async isAdmin(userId: string): Promise<boolean> {
-    return this.hasPermission(userId, 'ADMINISTRATOR');
+    // Check if user has ARTICLE_MANAGE_ALL permission (admin override)
+    return this.hasPermission(userId, 'ARTICLE_MANAGE_ALL');
   }
 
   async isRegularUser(userId: string): Promise<boolean> {
-    return this.checkPermissions(userId, {
-      none: ['ADMINISTRATOR', 'BAN_MEMBERS', 'KICK_MEMBERS'],
-    });
+    // Regular user doesn't have ARTICLE_MANAGE_ALL
+    return !(await this.hasPermission(userId, 'ARTICLE_MANAGE_ALL'));
   }
 
   async canManageContent(userId: string): Promise<boolean> {
     return this.checkPermissions(userId, {
       all: ['ARTICLE_CREATE'],
-      any: ['ARTICLE_EDIT', 'ARTICLE_EDIT'],
-      none: ['ADMINISTRATOR'],
+      any: ['ARTICLE_UPDATE', 'ARTICLE_UPDATE'],
     });
   }
 
   async canModerateContent(userId: string): Promise<boolean> {
     return this.checkPermissions(userId, {
-      any: ['ARTICLE_EDIT', 'COMMENT_EDIT'],
-      none: ['ADMINISTRATOR'],
+      any: ['ARTICLE_UPDATE', 'REPORT_MODERATE'],
     });
   }
 

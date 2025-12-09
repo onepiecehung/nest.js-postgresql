@@ -255,7 +255,7 @@ export class ScheduledPublishingService extends BaseService<Article> {
    * Cron job to automatically publish scheduled articles
    * Runs every minute to check for articles ready to publish
    */
-  @Cron(CronExpression.EVERY_MINUTE)
+  // @Cron(CronExpression.EVERY_MINUTE)
   async publishScheduledArticles(): Promise<void> {
     try {
       this.logger.log('Publishing scheduled articles');

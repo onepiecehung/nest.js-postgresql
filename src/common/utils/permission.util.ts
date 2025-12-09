@@ -72,12 +72,14 @@ export function hasPermission(
 }
 
 /**
- * Check if a bitfield has administrator permission
+ * Check if a bitfield has administrator-level permissions
+ * Administrator is defined as having ARTICLE_MANAGE_ALL permission
+ * which grants full content management capabilities
  * @param bitfield - Permission bitfield
- * @returns True if has administrator permission
+ * @returns True if has administrator-level permissions
  */
 export function hasAdministrator(bitfield: PermissionBitfield): boolean {
-  return hasPermission(bitfield, 'ADMINISTRATOR');
+  return hasPermission(bitfield, 'ARTICLE_MANAGE_ALL');
 }
 
 /**
@@ -128,9 +130,11 @@ export function calculateEffectivePermissions(
   memberAllow: PermissionBitfield = 0n,
   memberDeny: PermissionBitfield = 0n,
 ): PermissionBitfield {
-  // Administrator bypasses all overwrites
+  // Administrator (ARTICLE_MANAGE_ALL) bypasses all overwrites
+  // Return all available permissions if administrator permission is present
   if (hasAdministrator(basePermissions)) {
-    return PERMISSION_CONSTANTS.BIT_MASKS.ADMINISTRATOR;
+    // Return all permissions (all bits set)
+    return ~0n;
   }
 
   let effectivePermissions = basePermissions;

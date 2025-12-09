@@ -96,7 +96,7 @@ export class ArticlesController {
     ANALYTICS_CONSTANTS.SUBJECT_TYPES.ARTICLE,
   )
   @RequirePermissions({
-    all: ['ARTICLE_EDIT'],
+    all: ['ARTICLE_UPDATE'],
     any: ['ARTICLE_MANAGE_ALL'], // Admin có thể edit tất cả bài viết
   })
   update(
@@ -114,7 +114,7 @@ export class ArticlesController {
     ANALYTICS_CONSTANTS.SUBJECT_TYPES.ARTICLE,
   )
   @RequirePermissions({
-    all: ['ARTICLE_PUBLISH'],
+    all: ['ARTICLE_UPDATE'],
     any: ['ARTICLE_MANAGE_ALL'], // Admin có thể publish tất cả bài viết
   })
   publish(@Param('id', new SnowflakeIdPipe()) id: string) {
@@ -128,7 +128,7 @@ export class ArticlesController {
     ANALYTICS_CONSTANTS.SUBJECT_TYPES.ARTICLE,
   )
   @RequirePermissions({
-    all: ['ARTICLE_PUBLISH'],
+    all: ['ARTICLE_UPDATE'],
     any: ['ARTICLE_MANAGE_ALL'], // Admin có thể unpublish tất cả bài viết
   })
   @Auth()
@@ -143,7 +143,7 @@ export class ArticlesController {
     ANALYTICS_CONSTANTS.SUBJECT_TYPES.ARTICLE,
   )
   @RequirePermissions({
-    all: ['ARTICLE_DELETE'],
+    all: ['ARTICLE_UPDATE'],
     any: ['ARTICLE_MANAGE_ALL'], // Admin có thể xóa tất cả bài viết
   })
   @Auth()

@@ -12,7 +12,7 @@ import {
   Query,
   Request,
 } from '@nestjs/common';
-import { Auth } from 'src/common/decorators';
+import { Auth, RequirePermissions } from 'src/common/decorators';
 import { AuthPayload } from 'src/common/interface';
 import { SnowflakeIdPipe } from 'src/common/pipes';
 import { CreateSegmentDto, QuerySegmentDto, UpdateSegmentDto } from './dto';
@@ -202,17 +202,34 @@ export class SegmentsController {
 
   /**
    * Update a segment
-   * Requires authentication
+   * Requires authentication and SEGMENTS_UPDATE permission
+   * Automatically checks both general permission (from roles) and segment-specific permission
+   * using context resolver pattern
    * @param id Segment ID (Snowflake ID)
    * @param updateSegmentDto Segment update data
    * @returns Updated segment entity
    */
   @Patch(':id')
   @Auth()
+  @RequirePermissions({
+    all: ['SEGMENTS_UPDATE'],
+    contexts: [
+      {
+        type: 'segment',
+        paramName: 'id', // Extract segmentId from :id param
+        required: true,
+      },
+    ],
+  })
   async update(
     @Param('id', SnowflakeIdPipe) id: string,
     @Body() updateSegmentDto: UpdateSegmentDto,
   ) {
+    // Permission check is handled automatically by PermissionsGuard
+    // It checks:
+    // 1. General SEGMENTS_UPDATE permission (from roles), OR
+    // 2. SEGMENTS_UPDATE permission for this specific segment (from UserPermission)
+
     // Note: seriesId in updateSegmentDto will be ignored by service
     // as it's not allowed to change the parent series
     return this.segmentsService.update(id, updateSegmentDto);

@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { HttpModule } from '@nestjs/axios';
 import { Author, AuthorSeries } from 'src/authors/entities';
 import { Character, CharacterStaff } from 'src/characters/entities';
+import { PermissionsModule } from 'src/permissions/permissions.module';
 import { ReactionsModule } from 'src/reactions/reactions.module';
 import { Staff, StaffSeries } from 'src/staffs/entities';
 import { Studio, StudioSeries } from 'src/studios/entities';
@@ -33,6 +34,7 @@ import { SegmentsService } from './services/segments.service';
       AuthorSeries,
     ]),
     ReactionsModule,
+    PermissionsModule,
     HttpModule,
     CacheModule,
     RabbitmqModule,

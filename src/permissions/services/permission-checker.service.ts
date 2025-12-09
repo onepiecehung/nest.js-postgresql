@@ -27,10 +27,7 @@ export class PermissionChecker {
   ): Promise<boolean> {
     try {
       const userPermissions =
-        await this.permissionsService.getUserPermissionsBitfield(
-          userId,
-          organizationId,
-        );
+        await this.permissionsService.getUserPermissionsBitfield(userId);
       return hasPermission(userPermissions, permission);
     } catch (error) {
       this.logger.error(
@@ -55,10 +52,7 @@ export class PermissionChecker {
   ): Promise<boolean> {
     try {
       const userPermissions =
-        await this.permissionsService.getUserPermissionsBitfield(
-          userId,
-          organizationId,
-        );
+        await this.permissionsService.getUserPermissionsBitfield(userId);
       return checkPermissions(userPermissions, { all: permissions });
     } catch (error) {
       this.logger.error(
@@ -83,10 +77,7 @@ export class PermissionChecker {
   ): Promise<boolean> {
     try {
       const userPermissions =
-        await this.permissionsService.getUserPermissionsBitfield(
-          userId,
-          organizationId,
-        );
+        await this.permissionsService.getUserPermissionsBitfield(userId);
       return checkPermissions(userPermissions, { any: permissions });
     } catch (error) {
       this.logger.error(
@@ -111,10 +102,7 @@ export class PermissionChecker {
   ): Promise<boolean> {
     try {
       const userPermissions =
-        await this.permissionsService.getUserPermissionsBitfield(
-          userId,
-          organizationId,
-        );
+        await this.permissionsService.getUserPermissionsBitfield(userId);
       return checkPermissions(userPermissions, { none: permissions });
     } catch (error) {
       this.logger.error(
@@ -142,10 +130,7 @@ export class PermissionChecker {
   ): Promise<boolean> {
     try {
       const userPermissions =
-        await this.permissionsService.getUserPermissionsBitfield(
-          userId,
-          organizationId,
-        );
+        await this.permissionsService.getUserPermissionsBitfield(userId);
       return checkPermissions(userPermissions, options);
     } catch (error) {
       this.logger.error(
@@ -157,12 +142,12 @@ export class PermissionChecker {
   }
 
   /**
-   * Check if user is admin (has ADMINISTRATOR permission)
+   * Check if user is admin (has ARTICLE_MANAGE_ALL permission)
    * @param userId - User ID
    * @returns Promise<boolean>
    */
   async isAdmin(userId: string): Promise<boolean> {
-    return this.hasPermission(userId, 'ADMINISTRATOR');
+    return this.hasPermission(userId, 'ARTICLE_MANAGE_ALL');
   }
 
   /**
@@ -171,11 +156,7 @@ export class PermissionChecker {
    * @returns Promise<boolean>
    */
   async isRegularUser(userId: string): Promise<boolean> {
-    return this.hasNonePermissions(userId, [
-      'ADMINISTRATOR',
-      'BAN_MEMBERS',
-      'KICK_MEMBERS',
-    ]);
+    return !(await this.hasPermission(userId, 'ARTICLE_MANAGE_ALL'));
   }
 
   /**
@@ -186,8 +167,7 @@ export class PermissionChecker {
   async canManageContent(userId: string): Promise<boolean> {
     return this.checkPermissions(userId, {
       all: ['ARTICLE_CREATE'],
-      any: ['ARTICLE_EDIT', 'ARTICLE_EDIT'],
-      none: ['ADMINISTRATOR'],
+      any: ['ARTICLE_UPDATE', 'ARTICLE_UPDATE'],
     });
   }
 
@@ -198,8 +178,7 @@ export class PermissionChecker {
    */
   async canModerateContent(userId: string): Promise<boolean> {
     return this.checkPermissions(userId, {
-      any: ['ARTICLE_EDIT', 'COMMENT_EDIT'],
-      none: ['ADMINISTRATOR'],
+      any: ['ARTICLE_UPDATE', 'REPORT_MODERATE'],
     });
   }
 
@@ -233,10 +212,7 @@ export class PermissionChecker {
     userId: string,
     organizationId?: string,
   ): Promise<bigint> {
-    return this.permissionsService.getUserPermissionsBitfield(
-      userId,
-      organizationId,
-    );
+    return this.permissionsService.getUserPermissionsBitfield(userId);
   }
 
   /**

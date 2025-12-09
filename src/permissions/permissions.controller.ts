@@ -10,23 +10,21 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
-import {
-  EffectivePermissions,
-  OverwriteTargetType,
-} from './constants/permissions.constants';
+import { EffectivePermissions } from './constants/permissions.constants';
 import { AssignRoleDto } from './dto/assign-role.dto';
-import { CreateOverwriteDto } from './dto/create-overwrite.dto';
 import { CreateRoleDto } from './dto/create-role.dto';
 import { EffectivePermissionsDto } from './dto/effective-permissions.dto';
+import { GrantSegmentPermissionDto } from './dto/grant-segment-permission.dto';
+import { RevokeSegmentPermissionDto } from './dto/revoke-segment-permission.dto';
 import { UpdateRoleDto } from './dto/update-role.dto';
-import { ChannelOverwrite } from './entities/channel-overwrite.entity';
 import { Role } from './entities/role.entity';
+import { UserPermission } from './entities/user-permission.entity';
 import { UserRole } from './entities/user-role.entity';
 import { PermissionsService } from './permissions.service';
 
 /**
  * Permissions controller providing REST API endpoints for Discord-style permission system
- * Handles role management, user-role assignments, channel overwrites, and permission calculations
+ * Handles role management, user-role assignments, and permission calculations
  */
 @Controller('permissions')
 export class PermissionsController {
@@ -91,37 +89,6 @@ export class PermissionsController {
     return this.permissionsService.getUsersWithRole(roleId);
   }
 
-  // ==================== CHANNEL OVERWRITE ENDPOINTS ====================
-
-  @Post('overwrites')
-  @HttpCode(HttpStatus.CREATED)
-  async createOverwrite(
-    @Body() dto: CreateOverwriteDto,
-  ): Promise<ChannelOverwrite> {
-    return this.permissionsService.createOverwrite(dto);
-  }
-
-  @Get('channels/:channelId/overwrites')
-  async getChannelOverwrites(
-    @Param('channelId') channelId: string,
-  ): Promise<ChannelOverwrite[]> {
-    return this.permissionsService.getChannelOverwrites(channelId);
-  }
-
-  @Delete('channels/:channelId/overwrites/:targetId/:targetType')
-  @HttpCode(HttpStatus.NO_CONTENT)
-  async deleteOverwrite(
-    @Param('channelId') channelId: string,
-    @Param('targetId') targetId: string,
-    @Param('targetType') targetType: OverwriteTargetType,
-  ): Promise<void> {
-    return this.permissionsService.deleteOverwrite(
-      channelId,
-      targetId,
-      targetType,
-    );
-  }
-
   // ==================== PERMISSION CALCULATION ENDPOINTS ====================
 
   @Get('effective')
@@ -129,6 +96,42 @@ export class PermissionsController {
     @Query() dto: EffectivePermissionsDto,
   ): Promise<EffectivePermissions> {
     return this.permissionsService.computeEffectivePermissions(dto);
+  }
+
+  // ==================== SEGMENT PERMISSIONS ENDPOINTS ====================
+
+  @Post('segments/permissions')
+  @HttpCode(HttpStatus.CREATED)
+  async grantSegmentPermission(
+    @Body() dto: GrantSegmentPermissionDto,
+  ): Promise<UserPermission> {
+    return this.permissionsService.grantSegmentPermission(dto);
+  }
+
+  @Delete('segments/permissions')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async revokeSegmentPermission(
+    @Body() dto: RevokeSegmentPermissionDto,
+  ): Promise<void> {
+    return this.permissionsService.revokeSegmentPermission(dto);
+  }
+
+  @Get('users/:userId/segments/permissions')
+  async getUserSegmentPermissions(
+    @Param('userId') userId: string,
+  ): Promise<UserPermission[]> {
+    return this.permissionsService.getUserSegmentPermissions(userId);
+  }
+
+  @Get('segments/:segmentId/permissions')
+  async getUsersWithSegmentPermission(
+    @Param('segmentId') segmentId: string,
+    @Query('permission') permission?: 'SEGMENTS_UPDATE' | 'SEGMENTS_CREATE',
+  ): Promise<UserPermission[]> {
+    return this.permissionsService.getUsersWithSegmentPermission(
+      segmentId,
+      permission,
+    );
   }
 
   // ==================== UTILITY ENDPOINTS ====================

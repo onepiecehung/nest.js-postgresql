@@ -2,16 +2,11 @@ import { HttpException, HttpStatus } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import {
-  DEFAULT_ROLES,
-  OverwriteTargetType,
-  PERMISSIONS,
-} from './constants/permissions.constants';
+import { DEFAULT_ROLES, PERMISSIONS } from './constants/permissions.constants';
 import { AssignRoleDto } from './dto/assign-role.dto';
 import { CreateRoleDto } from './dto/create-role.dto';
 import { EffectivePermissionsDto } from './dto/effective-permissions.dto';
 import { UpdateRoleDto } from './dto/update-role.dto';
-import { ChannelOverwrite } from './entities/channel-overwrite.entity';
 import { Role } from './entities/role.entity';
 import { UserRole } from './entities/user-role.entity';
 import { PermissionsService } from './permissions.service';
@@ -59,7 +54,6 @@ describe('PermissionsService', () => {
   let service: PermissionsService;
   let roleRepository: Repository<Role>;
   let userRoleRepository: Repository<UserRole>;
-  let channelOverwriteRepository: Repository<ChannelOverwrite>;
 
   const mockCacheService = {
     get: jest.fn(),
@@ -112,23 +106,6 @@ describe('PermissionsService', () => {
           },
         },
         {
-          provide: getRepositoryToken(ChannelOverwrite),
-          useValue: {
-            find: jest.fn(),
-            findOne: jest.fn(),
-            save: jest.fn(),
-            remove: jest.fn(),
-            metadata: {
-              columns: [
-                { propertyName: 'deletedAt' },
-                { propertyName: 'id' },
-                { propertyName: 'channelId' },
-                { propertyName: 'permissions' },
-              ],
-            },
-          },
-        },
-        {
           provide: 'CacheService',
           useValue: mockCacheService,
         },
@@ -143,9 +120,6 @@ describe('PermissionsService', () => {
     roleRepository = module.get<Repository<Role>>(getRepositoryToken(Role));
     userRoleRepository = module.get<Repository<UserRole>>(
       getRepositoryToken(UserRole),
-    );
-    channelOverwriteRepository = module.get<Repository<ChannelOverwrite>>(
-      getRepositoryToken(ChannelOverwrite),
     );
   });
 
@@ -512,82 +486,6 @@ describe('PermissionsService', () => {
     });
   });
 
-  describe('deleteOverwrite', () => {
-    it('should delete channel overwrite successfully', async () => {
-      // Arrange
-      const channelId = 'channel-123';
-      const targetId = 'role-456';
-      const targetType = OverwriteTargetType.ROLE;
-      const overwrite = {
-        id: 'overwrite-123',
-        channelId,
-        targetId,
-        targetType,
-        allow: '0',
-        deny: '0',
-        createdAt: new Date(),
-      } as ChannelOverwrite;
-
-      jest
-        .spyOn(channelOverwriteRepository, 'findOne')
-        .mockResolvedValue(overwrite);
-      jest
-        .spyOn(channelOverwriteRepository, 'remove')
-        .mockResolvedValue(overwrite);
-
-      // Act
-      await service.deleteOverwrite(channelId, targetId, targetType);
-
-      // Assert
-      expect(channelOverwriteRepository.findOne).toHaveBeenCalledWith({
-        where: { channelId, targetId, targetType },
-      });
-      expect(channelOverwriteRepository.remove).toHaveBeenCalledWith(overwrite);
-    });
-
-    it('should throw HttpException when overwrite not found', async () => {
-      // Arrange
-      const channelId = 'channel-123';
-      const targetId = 'non-existent-target';
-      const targetType = OverwriteTargetType.ROLE;
-
-      jest.spyOn(channelOverwriteRepository, 'findOne').mockResolvedValue(null);
-
-      // Act & Assert
-      await expect(
-        service.deleteOverwrite(channelId, targetId, targetType),
-      ).rejects.toThrow(HttpException);
-    });
-
-    it('should throw HttpException when deletion fails', async () => {
-      // Arrange
-      const channelId = 'channel-123';
-      const targetId = 'role-456';
-      const targetType = OverwriteTargetType.ROLE;
-      const overwrite = {
-        id: 'overwrite-123',
-        channelId,
-        targetId,
-        targetType,
-        allow: '0',
-        deny: '0',
-        createdAt: new Date(),
-      } as ChannelOverwrite;
-
-      jest
-        .spyOn(channelOverwriteRepository, 'findOne')
-        .mockResolvedValue(overwrite);
-
-      const error = new Error('Database remove failed');
-      jest.spyOn(channelOverwriteRepository, 'remove').mockRejectedValue(error);
-
-      // Act & Assert
-      await expect(
-        service.deleteOverwrite(channelId, targetId, targetType),
-      ).rejects.toThrow(Error);
-    });
-  });
-
   describe('computeEffectivePermissions', () => {
     beforeEach(() => {
       // Mock default everyone role
@@ -659,172 +557,7 @@ describe('PermissionsService', () => {
       expect(result.map.ADMINISTRATOR).toBe(true);
     });
 
-    it('Scenario 2: @everyone role denies VIEW_CHANNEL at channel level', async () => {
-      // Arrange
-      const userId = 'user-123';
-      const channelId = 'channel-456';
-      const memberRole = createMockRole({
-        id: 'member-role-id',
-        name: 'member',
-        permissions: PERMISSIONS.VIEW_CHANNEL.toString(),
-        position: 1,
-      });
-
-      jest.spyOn(service, 'getUserRoles').mockResolvedValue([
-        {
-          id: 'user-role-1',
-          userId,
-          roleId: memberRole.id,
-          role: memberRole,
-          createdAt: new Date(),
-        } as UserRole,
-      ]);
-
-      jest.spyOn(roleRepository, 'find').mockResolvedValue([memberRole]);
-
-      // Everyone role denies VIEW_CHANNEL
-      jest.spyOn(channelOverwriteRepository, 'find').mockResolvedValue([
-        {
-          id: 'overwrite-1',
-          channelId,
-          targetId: 'everyone-role-id',
-          targetType: OverwriteTargetType.ROLE,
-          allow: '0',
-          deny: PERMISSIONS.VIEW_CHANNEL.toString(),
-          createdAt: new Date(),
-        },
-      ] as ChannelOverwrite[]);
-
-      // Act
-      const result = await service.computeEffectivePermissions({
-        userId,
-        channelId,
-      });
-
-      // Assert
-      expect(result.map.VIEW_CHANNEL).toBe(false);
-    });
-
-    it('Scenario 3: Role denies permission, another role allows it - allow wins after aggregation', async () => {
-      // Arrange
-      const userId = 'user-123';
-      const channelId = 'channel-456';
-
-      const denyRole = createMockRole({
-        id: 'deny-role-id',
-        name: 'deny-role',
-        permissions: '0',
-        position: 1,
-      });
-
-      const allowRole = createMockRole({
-        id: 'allow-role-id',
-        name: 'allow-role',
-        permissions: PERMISSIONS.SEND_MESSAGES.toString(),
-        position: 2,
-      });
-
-      jest.spyOn(service, 'getUserRoles').mockResolvedValue([
-        {
-          id: 'user-role-1',
-          userId,
-          roleId: denyRole.id,
-          role: denyRole,
-          createdAt: new Date(),
-        },
-        {
-          id: 'user-role-2',
-          userId,
-          roleId: allowRole.id,
-          role: allowRole,
-          createdAt: new Date(),
-        },
-      ] as UserRole[]);
-
-      jest
-        .spyOn(roleRepository, 'find')
-        .mockResolvedValue([denyRole, allowRole]);
-
-      // Role overwrite: deny role denies SEND_MESSAGES, allow role allows it
-      jest.spyOn(channelOverwriteRepository, 'find').mockResolvedValue([
-        {
-          id: 'overwrite-1',
-          channelId,
-          targetId: denyRole.id,
-          targetType: OverwriteTargetType.ROLE,
-          allow: '0',
-          deny: PERMISSIONS.SEND_MESSAGES.toString(),
-          createdAt: new Date(),
-        },
-        {
-          id: 'overwrite-2',
-          channelId,
-          targetId: allowRole.id,
-          targetType: OverwriteTargetType.ROLE,
-          allow: PERMISSIONS.SEND_MESSAGES.toString(),
-          deny: '0',
-          createdAt: new Date(),
-        },
-      ] as ChannelOverwrite[]);
-
-      // Act
-      const result = await service.computeEffectivePermissions({
-        userId,
-        channelId,
-      });
-
-      // Assert
-      expect(result.map.SEND_MESSAGES).toBe(true); // Allow should win
-    });
-
-    it('Scenario 4: Member-specific deny overrides role allow', async () => {
-      // Arrange
-      const userId = 'user-123';
-      const channelId = 'channel-456';
-
-      const role = createMockRole({
-        id: 'role-id',
-        name: 'role',
-        permissions: PERMISSIONS.SEND_MESSAGES.toString(),
-        position: 1,
-      });
-
-      jest.spyOn(service, 'getUserRoles').mockResolvedValue([
-        {
-          id: 'user-role-1',
-          userId,
-          roleId: role.id,
-          role,
-          createdAt: new Date(),
-        } as UserRole,
-      ]);
-
-      jest.spyOn(roleRepository, 'find').mockResolvedValue([role]);
-
-      // Role allows SEND_MESSAGES, but member overwrite denies it
-      jest.spyOn(channelOverwriteRepository, 'find').mockResolvedValue([
-        {
-          id: 'member-overwrite',
-          channelId,
-          targetId: userId,
-          targetType: OverwriteTargetType.MEMBER,
-          allow: '0',
-          deny: PERMISSIONS.SEND_MESSAGES.toString(),
-          createdAt: new Date(),
-        },
-      ] as ChannelOverwrite[]);
-
-      // Act
-      const result = await service.computeEffectivePermissions({
-        userId,
-        channelId,
-      });
-
-      // Assert
-      expect(result.map.SEND_MESSAGES).toBe(false); // Member deny should override role allow
-    });
-
-    it('Scenario 5: Multiple role permissions merged with OR operation', async () => {
+    it('Scenario 2: Multiple role permissions merged with OR operation', async () => {
       // Arrange
       const userId = 'user-123';
 
@@ -892,53 +625,6 @@ describe('PermissionsService', () => {
         PERMISSIONS.SEND_MESSAGES |
         PERMISSIONS.EMBED_LINKS;
       expect(result.mask).toBe(expectedMask);
-    });
-
-    it('Scenario 6: @everyone allow overrides base role deny', async () => {
-      // Arrange
-      const userId = 'user-123';
-      const channelId = 'channel-456';
-
-      const role = createMockRole({
-        id: 'role-id',
-        name: 'role',
-        permissions: '0', // No permissions by default
-        position: 1,
-      });
-
-      jest.spyOn(service, 'getUserRoles').mockResolvedValue([
-        {
-          id: 'user-role-1',
-          userId,
-          roleId: role.id,
-          role,
-          createdAt: new Date(),
-        } as UserRole,
-      ]);
-
-      jest.spyOn(roleRepository, 'find').mockResolvedValue([role]);
-
-      // Everyone role allows VIEW_CHANNEL
-      jest.spyOn(channelOverwriteRepository, 'find').mockResolvedValue([
-        {
-          id: 'everyone-overwrite',
-          channelId,
-          targetId: 'everyone-role-id',
-          targetType: OverwriteTargetType.ROLE,
-          allow: PERMISSIONS.VIEW_CHANNEL.toString(),
-          deny: '0',
-          createdAt: new Date(),
-        },
-      ] as ChannelOverwrite[]);
-
-      // Act
-      const result = await service.computeEffectivePermissions({
-        userId,
-        channelId,
-      });
-
-      // Assert
-      expect(result.map.VIEW_CHANNEL).toBe(true); // Everyone allow should grant permission
     });
   });
 
