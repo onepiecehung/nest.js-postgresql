@@ -66,6 +66,15 @@ export async function seedPermissions(dataSource: DataSource): Promise<void> {
       managed: false,
       color: '#ffff00',
     },
+    {
+      name: DEFAULT_ROLES.UPLOADER,
+      description: 'Server uploaders with upload permissions',
+      permissions: calculateUploaderPermissions().toString(),
+      position: 5,
+      mentionable: true,
+      managed: false,
+      color: '#00ff00',
+    },
   ];
 
   const createdRoles: Role[] = [];
@@ -125,4 +134,12 @@ function calculateAdminPermissions(): bigint {
     PERMISSIONS.ORGANIZATION_VIEW_ANALYTICS |
     PERMISSIONS.ORGANIZATION_INVITE_MEMBERS
   );
+}
+
+/**
+ * Calculate permissions for uploader role
+ * Uploaders have most permissions but not full owner access
+ */
+function calculateUploaderPermissions(): bigint {
+  return PERMISSIONS.SEGMENTS_CREATE | PERMISSIONS.SEGMENTS_UPDATE;
 }

@@ -11,6 +11,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { TypeOrmBaseRepository } from 'src/common/repositories/typeorm.base-repo';
 import { BaseService } from 'src/common/services/base.service';
 import { seedPermissions } from 'src/db/seed/permissions.seed';
+import { Organization } from 'src/organizations/entities/organization.entity';
 import { UserPermissionService } from 'src/permissions/services/user-permission.service';
 import { PermissionName } from 'src/shared/constants';
 import { CacheService } from 'src/shared/services';
@@ -256,11 +257,11 @@ export class PermissionsService
         isTemporary: dto.isTemporary || false,
         expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : undefined,
       };
-
-      const saved = await this.userRoleRepository.save(userRoleData);
+      const userRole = this.userRoleRepository.create(userRoleData);
+      await this.userRoleRepository.save(userRole);
       // Refresh user's cached permissions after role assignment
       await this.userPermissionService.refreshUserPermissions(dto.userId);
-      return saved;
+      return userRole;
     } catch (error: any) {
       if (error instanceof HttpException) {
         throw error;
@@ -332,6 +333,36 @@ export class PermissionsService
       relations: ['role'],
       order: { createdAt: 'ASC' },
     });
+  }
+
+  /**
+   * Check if a user has a specific role by role name
+   * Returns true if the user has the role, false otherwise
+   *
+   * @param userId - User ID to check
+   * @param roleName - Name of the role to check
+   * @returns true if user has the role, false otherwise
+   */
+  async hasRoleName(userId: string, roleName: string): Promise<boolean> {
+    try {
+      const userRoles = await this.getUserRoles(userId);
+
+      // Check if any of the user's roles matches the role name
+      const hasRole = userRoles.some(
+        (userRole) =>
+          userRole.role &&
+          userRole.role.name === roleName &&
+          userRole.isValid(),
+      );
+
+      return hasRole;
+    } catch (error) {
+      this.logger.error(
+        `Error checking role ${roleName} for user ${userId}:`,
+        error,
+      );
+      return false;
+    }
   }
 
   // ==================== PERMISSION CALCULATION ====================
@@ -466,51 +497,74 @@ export class PermissionsService
   // ==================== UTILITY METHODS ====================
 
   /**
-   * Create default roles for a new server/guild
+   * Create default roles for a new organization
+   * Creates roles with unique names per organization to avoid duplicate key conflicts
+   *
+   * @param organization - Organization entity to associate roles with
+   * @returns Array of created roles
    */
-  async createDefaultRoles(): Promise<Role[]> {
+  async createDefaultRoles(organization: Organization): Promise<Role[]> {
+    // Create unique role names using organization slug to avoid conflicts
+    const roleNamePrefix = `${organization.slug}-`;
     const defaultRoles = [
       {
-        name: DEFAULT_ROLES.EVERYONE,
+        name: `${roleNamePrefix}${DEFAULT_ROLES.EVERYONE}`,
         description: 'Default role assigned to all users',
         permissions: '0',
         position: 0,
         mentionable: false,
+        organization,
       },
       {
-        name: DEFAULT_ROLES.MEMBER,
+        name: `${roleNamePrefix}${DEFAULT_ROLES.MEMBER}`,
         description: 'Default role for server members',
         permissions: '0',
         position: 1,
         mentionable: false,
+        organization,
       },
       {
-        name: DEFAULT_ROLES.MODERATOR,
+        name: `${roleNamePrefix}${DEFAULT_ROLES.MODERATOR}`,
         description: 'Server moderators with moderation permissions',
         permissions: this.calculateModeratorPermissions().toString(),
         position: 2,
         mentionable: true,
+        organization,
       },
       {
-        name: DEFAULT_ROLES.ADMIN,
+        name: `${roleNamePrefix}${DEFAULT_ROLES.ADMIN}`,
         description: 'Server administrators with administrative permissions',
         permissions: this.calculateAdminPermissions().toString(),
         position: 3,
         mentionable: true,
+        organization,
       },
       {
-        name: DEFAULT_ROLES.OWNER,
+        name: `${roleNamePrefix}${DEFAULT_ROLES.OWNER}`,
         description: 'Server owner with full permissions',
         permissions: (~0n).toString(),
         position: 4,
         mentionable: true,
+        organization,
       },
     ];
 
     const createdRoles: Role[] = [];
     for (const roleData of defaultRoles) {
-      const role = await this.create(roleData);
-      createdRoles.push(role);
+      // Check if role already exists to avoid duplicate key error
+      const existingRole = await this.findOne(
+        { name: roleData.name },
+        { relations: ['organization'] },
+      );
+
+      if (existingRole) {
+        // Role already exists, use it instead of creating new one
+        createdRoles.push(existingRole);
+      } else {
+        // Create new role
+        const role = await this.create(roleData);
+        createdRoles.push(role);
+      }
     }
 
     return createdRoles;

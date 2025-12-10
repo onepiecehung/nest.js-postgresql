@@ -49,6 +49,7 @@ export const DEFAULT_ROLES = {
   MODERATOR: 'moderator',
   MEMBER: 'member',
   OWNER: 'owner',
+  UPLOADER: 'uploader',
 } as const;
 
 /**

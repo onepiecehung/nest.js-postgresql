@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -9,7 +10,10 @@ import {
   Patch,
   Post,
   Query,
+  Request,
 } from '@nestjs/common';
+import { Auth } from 'src/common/decorators';
+import { AuthPayload } from 'src/common/interface';
 import { EffectivePermissions } from './constants/permissions.constants';
 import { AssignRoleDto } from './dto/assign-role.dto';
 import { CreateRoleDto } from './dto/create-role.dto';
@@ -89,6 +93,24 @@ export class PermissionsController {
     return this.permissionsService.getUsersWithRole(roleId);
   }
 
+  @Get('me/roles/check')
+  @Auth()
+  async checkCurrentUserRole(
+    @Request() req: Request & { user: AuthPayload },
+    @Query('roleName') roleName: string,
+  ): Promise<{ hasRole: boolean }> {
+    if (!roleName) {
+      throw new BadRequestException({
+        messageKey: 'permission.ROLE_NAME_REQUIRED',
+      });
+    }
+    const hasRole = await this.permissionsService.hasRoleName(
+      req.user.uid,
+      roleName,
+    );
+    return { hasRole };
+  }
+
   // ==================== PERMISSION CALCULATION ENDPOINTS ====================
 
   @Get('effective')
@@ -135,10 +157,6 @@ export class PermissionsController {
   }
 
   // ==================== UTILITY ENDPOINTS ====================
-
-  @Post('setup-default-roles')
-  @HttpCode(HttpStatus.CREATED)
-  async createDefaultRoles(): Promise<Role[]> {
-    return this.permissionsService.createDefaultRoles();
-  }
+  // Note: Default roles are now created automatically when creating an organization
+  // This endpoint has been removed as roles must be associated with an organization
 }
