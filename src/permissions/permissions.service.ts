@@ -257,11 +257,11 @@ export class PermissionsService
         isTemporary: dto.isTemporary || false,
         expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : undefined,
       };
-
-      const saved = await this.userRoleRepository.save(userRoleData);
+      const userRole = this.userRoleRepository.create(userRoleData);
+      await this.userRoleRepository.save(userRole);
       // Refresh user's cached permissions after role assignment
       await this.userPermissionService.refreshUserPermissions(dto.userId);
-      return saved;
+      return userRole;
     } catch (error: any) {
       if (error instanceof HttpException) {
         throw error;
@@ -333,6 +333,36 @@ export class PermissionsService
       relations: ['role'],
       order: { createdAt: 'ASC' },
     });
+  }
+
+  /**
+   * Check if a user has a specific role by role name
+   * Returns true if the user has the role, false otherwise
+   *
+   * @param userId - User ID to check
+   * @param roleName - Name of the role to check
+   * @returns true if user has the role, false otherwise
+   */
+  async hasRoleName(userId: string, roleName: string): Promise<boolean> {
+    try {
+      const userRoles = await this.getUserRoles(userId);
+
+      // Check if any of the user's roles matches the role name
+      const hasRole = userRoles.some(
+        (userRole) =>
+          userRole.role &&
+          userRole.role.name === roleName &&
+          userRole.isValid(),
+      );
+
+      return hasRole;
+    } catch (error) {
+      this.logger.error(
+        `Error checking role ${roleName} for user ${userId}:`,
+        error,
+      );
+      return false;
+    }
   }
 
   // ==================== PERMISSION CALCULATION ====================
