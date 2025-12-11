@@ -177,8 +177,8 @@ export class SeriesService extends BaseService<Series> {
   /**
    * Define which fields can be searched
    */
-  protected getSearchableColumns(): (keyof Series)[] {
-    return ['description'];
+  protected getSearchableColumns(): any[] {
+    return ['description', 'title:jsonb'];
   }
 
   /**

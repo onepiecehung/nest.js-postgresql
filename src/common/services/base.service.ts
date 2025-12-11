@@ -305,6 +305,7 @@ export abstract class BaseService<T extends { id: string }> {
       this.defaultSearchField,
       extraFilter,
     );
+    console.log('where', where);
     const safe = this.applyQueryOpts(opts);
     const token = decodeSignedCursor(cursor);
     const take = limit;
@@ -327,7 +328,7 @@ export abstract class BaseService<T extends { id: string }> {
         direction,
         boundary,
       );
-
+    console.log('whereToUse', whereToUse);
     const [data] = await this.repo.findAndCount({
       where: whereToUse,
       order: orderObj,
