@@ -6,7 +6,10 @@ import {
 } from 'src/shared/constants';
 
 /**
- * Permission utility functions for Discord-style bitfield operations
+ * Permission utility functions for Discord-style bitfield operations (v1)
+ * @deprecated This file contains v1 permission utilities using PermissionName
+ * DO NOT USE IN NEW CODE - Use PermissionKey format and PermissionEvaluator instead
+ * This file is kept for backward compatibility only and will be removed in a future version
  *
  * Provides functions for:
  * - Bitwise operations on permission bitfields

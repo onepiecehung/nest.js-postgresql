@@ -1,6 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsEnum, IsString } from 'class-validator';
-import { PermissionName } from 'src/shared/constants';
+import { IsString } from 'class-validator';
+import { PermissionKey } from 'src/permissions/types/permission-key.type';
 
 /**
  * DTO for revoking a permission from a user for a specific segment
@@ -21,10 +21,9 @@ export class RevokeSegmentPermissionDto {
   segmentId: string;
 
   @ApiProperty({
-    description: 'Permission name to revoke',
-    example: 'SEGMENTS_UPDATE',
-    enum: ['SEGMENTS_UPDATE', 'SEGMENTS_CREATE'] as PermissionName[],
+    description: 'PermissionKey to revoke',
+    example: 'segment.update',
   })
-  @IsEnum(['SEGMENTS_UPDATE', 'SEGMENTS_CREATE'] as any)
-  permission: 'SEGMENTS_UPDATE' | 'SEGMENTS_CREATE';
+  @IsString()
+  permission: PermissionKey;
 }

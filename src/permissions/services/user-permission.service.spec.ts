@@ -1,9 +1,8 @@
 import { Logger } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
-import { PermissionName } from 'src/shared/constants';
 import { CacheService } from 'src/shared/services';
-import { PERMISSIONS } from '../constants/permissions.constants';
-import { PermissionsService } from '../permissions.service';
+import { PermissionKey } from '../types/permission-key.type';
+import { PermissionEvaluator } from './permission-evaluator.service';
 import { UserPermissionService } from './user-permission.service';
 
 /**
@@ -12,13 +11,15 @@ import { UserPermissionService } from './user-permission.service';
  */
 describe('UserPermissionService', () => {
   let service: UserPermissionService;
-  let permissionsService: PermissionsService;
+  let permissionEvaluator: PermissionEvaluator;
   let cacheService: CacheService;
   let logger: Logger;
 
-  // Mock PermissionsService
-  const mockPermissionsService = {
-    getUserPermissionsBitfield: jest.fn(),
+  // Mock PermissionEvaluator
+  const mockPermissionEvaluator = {
+    evaluate: jest.fn(),
+    getEffectivePermissions: jest.fn(),
+    invalidateCache: jest.fn(),
   };
 
   // Mock CacheService
@@ -34,8 +35,8 @@ describe('UserPermissionService', () => {
       providers: [
         UserPermissionService,
         {
-          provide: PermissionsService,
-          useValue: mockPermissionsService,
+          provide: PermissionEvaluator,
+          useValue: mockPermissionEvaluator,
         },
         {
           provide: CacheService,
@@ -45,7 +46,7 @@ describe('UserPermissionService', () => {
     }).compile();
 
     service = module.get<UserPermissionService>(UserPermissionService);
-    permissionsService = module.get<PermissionsService>(PermissionsService);
+    permissionEvaluator = module.get<PermissionEvaluator>(PermissionEvaluator);
     cacheService = module.get<CacheService>(CacheService);
     logger = service['logger'];
 
@@ -64,43 +65,50 @@ describe('UserPermissionService', () => {
       // Arrange
       const userId = 'user-123';
       const organizationId = 'org-456';
-      const userPermissions =
-        PERMISSIONS.ARTICLE_CREATE | PERMISSIONS.ARTICLE_EDIT;
+      const effectivePermissions = {
+        allowPermissions: 123n,
+        denyPermissions: 0n,
+        permissions: {},
+        permissionDetails: {},
+      };
 
-      mockPermissionsService.getUserPermissionsBitfield.mockResolvedValue(
-        userPermissions,
+      mockPermissionEvaluator.getEffectivePermissions.mockResolvedValue(
+        effectivePermissions,
       );
       mockCacheService.set.mockResolvedValue(undefined);
-
-      // Spy on logger to verify logging
 
       // Act
       await service.initUserPermissions(userId, organizationId);
 
       // Assert
       expect(
-        mockPermissionsService.getUserPermissionsBitfield,
-      ).toHaveBeenCalledWith(userId, organizationId);
+        mockPermissionEvaluator.getEffectivePermissions,
+      ).toHaveBeenCalledWith(userId, 'organization', organizationId);
       expect(mockCacheService.set).toHaveBeenCalledWith(
         `user:permissions:${userId}:org:${organizationId}`,
-        userPermissions.toString(),
+        '123',
         3600, // CACHE_TTL
       );
       expect(logger.log).toHaveBeenCalledWith(
         `Initializing permissions for user ${userId}`,
       );
       expect(logger.log).toHaveBeenCalledWith(
-        `Cached permissions for user ${userId}: ${userPermissions.toString()}`,
+        `Cached permissions for user ${userId}: 123`,
       );
     });
 
     it('should initialize user permissions without organization context', async () => {
       // Arrange
       const userId = 'user-123';
-      const userPermissions = PERMISSIONS.ARTICLE_CREATE;
+      const effectivePermissions = {
+        allowPermissions: 456n,
+        denyPermissions: 0n,
+        permissions: {},
+        permissionDetails: {},
+      };
 
-      mockPermissionsService.getUserPermissionsBitfield.mockResolvedValue(
-        userPermissions,
+      mockPermissionEvaluator.getEffectivePermissions.mockResolvedValue(
+        effectivePermissions,
       );
       mockCacheService.set.mockResolvedValue(undefined);
 
@@ -109,11 +117,11 @@ describe('UserPermissionService', () => {
 
       // Assert
       expect(
-        mockPermissionsService.getUserPermissionsBitfield,
-      ).toHaveBeenCalledWith(userId, undefined);
+        mockPermissionEvaluator.getEffectivePermissions,
+      ).toHaveBeenCalledWith(userId, undefined, undefined);
       expect(mockCacheService.set).toHaveBeenCalledWith(
         `user:permissions:${userId}`,
-        userPermissions.toString(),
+        '456',
         3600,
       );
     });
@@ -123,11 +131,7 @@ describe('UserPermissionService', () => {
       const userId = 'user-123';
       const error = new Error('Database connection failed');
 
-      mockPermissionsService.getUserPermissionsBitfield.mockRejectedValue(
-        error,
-      );
-
-      // Spy on logger to verify error logging
+      mockPermissionEvaluator.getEffectivePermissions.mockRejectedValue(error);
 
       // Act & Assert
       await expect(service.initUserPermissions(userId)).rejects.toThrow(error);
@@ -143,21 +147,20 @@ describe('UserPermissionService', () => {
       // Arrange
       const userId = 'user-123';
       const organizationId = 'org-456';
-      const cachedPermissions =
-        PERMISSIONS.ARTICLE_CREATE | PERMISSIONS.ARTICLE_EDIT;
+      const cachedPermissions = '123';
 
-      mockCacheService.get.mockResolvedValue(cachedPermissions.toString());
+      mockCacheService.get.mockResolvedValue(cachedPermissions);
 
       // Act
       const result = await service.getUserPermissions(userId, organizationId);
 
       // Assert
-      expect(result).toBe(cachedPermissions);
+      expect(result).toBe(123n);
       expect(mockCacheService.get).toHaveBeenCalledWith(
         `user:permissions:${userId}:org:${organizationId}`,
       );
       expect(
-        mockPermissionsService.getUserPermissionsBitfield,
+        mockPermissionEvaluator.getEffectivePermissions,
       ).not.toHaveBeenCalled();
     });
 
@@ -165,31 +168,33 @@ describe('UserPermissionService', () => {
       // Arrange
       const userId = 'user-123';
       const organizationId = 'org-456';
-      const userPermissions =
-        PERMISSIONS.ARTICLE_CREATE | PERMISSIONS.ARTICLE_EDIT;
+      const effectivePermissions = {
+        allowPermissions: 789n,
+        denyPermissions: 0n,
+        permissions: {},
+        permissionDetails: {},
+      };
 
       mockCacheService.get.mockResolvedValue(null); // Cache miss
-      mockPermissionsService.getUserPermissionsBitfield.mockResolvedValue(
-        userPermissions,
+      mockPermissionEvaluator.getEffectivePermissions.mockResolvedValue(
+        effectivePermissions,
       );
       mockCacheService.set.mockResolvedValue(undefined);
-
-      // Spy on logger to verify warning
 
       // Act
       const result = await service.getUserPermissions(userId, organizationId);
 
       // Assert
-      expect(result).toBe(userPermissions);
+      expect(result).toBe(789n);
       expect(logger.warn).toHaveBeenCalledWith(
         `Cache miss for user ${userId}, loading from database`,
       );
       expect(
-        mockPermissionsService.getUserPermissionsBitfield,
-      ).toHaveBeenCalledWith(userId, organizationId);
+        mockPermissionEvaluator.getEffectivePermissions,
+      ).toHaveBeenCalledWith(userId, 'organization', organizationId);
       expect(mockCacheService.set).toHaveBeenCalledWith(
         `user:permissions:${userId}:org:${organizationId}`,
-        userPermissions.toString(),
+        '789',
         3600,
       );
     });
@@ -200,8 +205,6 @@ describe('UserPermissionService', () => {
       const error = new Error('Cache service unavailable');
 
       mockCacheService.get.mockRejectedValue(error);
-
-      // Spy on logger to verify error logging
 
       // Act
       const result = await service.getUserPermissions(userId);
@@ -218,9 +221,9 @@ describe('UserPermissionService', () => {
       // Arrange
       const userId = 'user-123';
       const organizationId = 'org-456';
-      const userPermissions = PERMISSIONS.ARTICLE_CREATE;
+      const cachedPermissions = '123';
 
-      mockCacheService.get.mockResolvedValue(userPermissions.toString());
+      mockCacheService.get.mockResolvedValue(cachedPermissions);
 
       // Act
       await service.getUserPermissions(userId, organizationId);
@@ -234,9 +237,9 @@ describe('UserPermissionService', () => {
     it('should handle global context in cache key', async () => {
       // Arrange
       const userId = 'user-123';
-      const userPermissions = PERMISSIONS.ARTICLE_CREATE;
+      const cachedPermissions = '456';
 
-      mockCacheService.get.mockResolvedValue(userPermissions.toString());
+      mockCacheService.get.mockResolvedValue(cachedPermissions);
 
       // Act
       await service.getUserPermissions(userId);
@@ -252,34 +255,37 @@ describe('UserPermissionService', () => {
     it('should return true when user has permission', async () => {
       // Arrange
       const userId = 'user-123';
-      const permission = 'ARTICLE_CREATE';
+      const permissionKey: PermissionKey = 'article.create';
       const organizationId = 'org-456';
-      const userPermissions =
-        PERMISSIONS.ARTICLE_CREATE | PERMISSIONS.ARTICLE_EDIT;
 
-      mockCacheService.get.mockResolvedValue(userPermissions.toString());
+      mockPermissionEvaluator.evaluate.mockResolvedValue(true);
 
       // Act
       const result = await service.hasPermission(
         userId,
-        permission,
+        permissionKey,
         organizationId,
       );
 
       // Assert
       expect(result).toBe(true);
+      expect(mockPermissionEvaluator.evaluate).toHaveBeenCalledWith(
+        userId,
+        permissionKey,
+        'organization',
+        organizationId,
+      );
     });
 
     it('should return false when user does not have permission', async () => {
       // Arrange
       const userId = 'user-123';
-      const permission = 'ADMINISTRATOR';
-      const userPermissions = PERMISSIONS.ARTICLE_CREATE;
+      const permissionKey: PermissionKey = 'article.update';
 
-      mockCacheService.get.mockResolvedValue(userPermissions.toString());
+      mockPermissionEvaluator.evaluate.mockResolvedValue(false);
 
       // Act
-      const result = await service.hasPermission(userId, permission);
+      const result = await service.hasPermission(userId, permissionKey);
 
       // Assert
       expect(result).toBe(false);
@@ -292,16 +298,15 @@ describe('UserPermissionService', () => {
       const userId = 'user-123';
       const organizationId = 'org-456';
       const options = {
-        all: ['ARTICLE_CREATE'] as PermissionName[],
-        any: ['ARTICLE_EDIT', 'ARTICLE_DELETE'] as PermissionName[],
-        none: ['ADMINISTRATOR'] as PermissionName[],
+        all: ['article.create'] as PermissionKey[],
+        any: ['article.update', 'article.delete'] as PermissionKey[],
+        none: ['organization.delete'] as PermissionKey[],
       };
-      const userPermissions =
-        PERMISSIONS.ARTICLE_CREATE |
-        PERMISSIONS.ARTICLE_EDIT |
-        PERMISSIONS.COMMENT_CREATE;
 
-      mockCacheService.get.mockResolvedValue(userPermissions.toString());
+      mockPermissionEvaluator.evaluate
+        .mockResolvedValueOnce(true) // all: article.create
+        .mockResolvedValueOnce(true) // any: article.update (first one passes)
+        .mockResolvedValueOnce(false); // none: organization.delete
 
       // Act
       const result = await service.checkPermissions(
@@ -320,56 +325,65 @@ describe('UserPermissionService', () => {
       // Arrange
       const userId = 'user-123';
       const organizationId = 'org-456';
-      const userPermissions =
-        PERMISSIONS.ARTICLE_CREATE | PERMISSIONS.ARTICLE_EDIT;
+      const effectivePermissions = {
+        allowPermissions: 999n,
+        denyPermissions: 0n,
+        permissions: {},
+        permissionDetails: {},
+      };
 
-      mockPermissionsService.getUserPermissionsBitfield.mockResolvedValue(
-        userPermissions,
+      mockPermissionEvaluator.getEffectivePermissions.mockResolvedValue(
+        effectivePermissions,
       );
       mockCacheService.set.mockResolvedValue(undefined);
-
-      // Spy on logger to verify logging
+      mockPermissionEvaluator.invalidateCache.mockResolvedValue(undefined);
 
       // Act
       await service.refreshUserPermissions(userId, organizationId);
 
       // Assert
       expect(
-        mockPermissionsService.getUserPermissionsBitfield,
-      ).toHaveBeenCalledWith(userId, organizationId);
+        mockPermissionEvaluator.getEffectivePermissions,
+      ).toHaveBeenCalledWith(userId, 'organization', organizationId);
       expect(mockCacheService.set).toHaveBeenCalledWith(
         `user:permissions:${userId}:org:${organizationId}`,
-        userPermissions.toString(),
+        '999',
         3600,
       );
       expect(logger.log).toHaveBeenCalledWith(
         `Refreshing permissions for user ${userId}`,
       );
       expect(logger.log).toHaveBeenCalledWith(
-        `Refreshed permissions for user ${userId}: ${userPermissions.toString()}`,
+        `Refreshed permissions for user ${userId}: 999`,
       );
     });
 
     it('should refresh user permissions without organization context', async () => {
       // Arrange
       const userId = 'user-123';
-      const userPermissions = PERMISSIONS.ARTICLE_CREATE;
+      const effectivePermissions = {
+        allowPermissions: 111n,
+        denyPermissions: 0n,
+        permissions: {},
+        permissionDetails: {},
+      };
 
-      mockPermissionsService.getUserPermissionsBitfield.mockResolvedValue(
-        userPermissions,
+      mockPermissionEvaluator.getEffectivePermissions.mockResolvedValue(
+        effectivePermissions,
       );
       mockCacheService.set.mockResolvedValue(undefined);
+      mockPermissionEvaluator.invalidateCache.mockResolvedValue(undefined);
 
       // Act
       await service.refreshUserPermissions(userId);
 
       // Assert
       expect(
-        mockPermissionsService.getUserPermissionsBitfield,
-      ).toHaveBeenCalledWith(userId, undefined);
+        mockPermissionEvaluator.getEffectivePermissions,
+      ).toHaveBeenCalledWith(userId, undefined, undefined);
       expect(mockCacheService.set).toHaveBeenCalledWith(
         `user:permissions:${userId}`,
-        userPermissions.toString(),
+        '111',
         3600,
       );
     });
@@ -379,11 +393,7 @@ describe('UserPermissionService', () => {
       const userId = 'user-123';
       const error = new Error('Database connection failed');
 
-      mockPermissionsService.getUserPermissionsBitfield.mockRejectedValue(
-        error,
-      );
-
-      // Spy on logger to verify error logging
+      mockPermissionEvaluator.getEffectivePermissions.mockRejectedValue(error);
 
       // Act & Assert
       await expect(service.refreshUserPermissions(userId)).rejects.toThrow(
@@ -403,8 +413,6 @@ describe('UserPermissionService', () => {
       const organizationId = 'org-456';
 
       mockCacheService.delete.mockResolvedValue(undefined);
-
-      // Spy on logger to verify logging
 
       // Act
       await service.clearUserPermissions(userId, organizationId);
@@ -440,8 +448,6 @@ describe('UserPermissionService', () => {
 
       mockCacheService.delete.mockRejectedValue(error);
 
-      // Spy on logger to verify error logging
-
       // Act
       await service.clearUserPermissions(userId);
 
@@ -459,20 +465,25 @@ describe('UserPermissionService', () => {
       // Arrange
       const userIds = ['user-1', 'user-2', 'user-3'];
       const organizationId = 'org-456';
+      const effectivePermissions = {
+        allowPermissions: 100n,
+        denyPermissions: 0n,
+        permissions: {},
+        permissionDetails: {},
+      };
 
-      mockPermissionsService.getUserPermissionsBitfield.mockResolvedValue(
-        PERMISSIONS.ARTICLE_CREATE,
+      mockPermissionEvaluator.getEffectivePermissions.mockResolvedValue(
+        effectivePermissions,
       );
       mockCacheService.set.mockResolvedValue(undefined);
-
-      // Spy on logger to verify logging
+      mockPermissionEvaluator.invalidateCache.mockResolvedValue(undefined);
 
       // Act
       await service.batchRefreshPermissions(userIds, organizationId);
 
       // Assert
       expect(
-        mockPermissionsService.getUserPermissionsBitfield,
+        mockPermissionEvaluator.getEffectivePermissions,
       ).toHaveBeenCalledTimes(3);
       expect(mockCacheService.set).toHaveBeenCalledTimes(3);
       expect(logger.log).toHaveBeenCalledWith(
@@ -483,18 +494,25 @@ describe('UserPermissionService', () => {
     it('should batch refresh permissions without organization context', async () => {
       // Arrange
       const userIds = ['user-1', 'user-2'];
+      const effectivePermissions = {
+        allowPermissions: 200n,
+        denyPermissions: 0n,
+        permissions: {},
+        permissionDetails: {},
+      };
 
-      mockPermissionsService.getUserPermissionsBitfield.mockResolvedValue(
-        PERMISSIONS.ARTICLE_CREATE,
+      mockPermissionEvaluator.getEffectivePermissions.mockResolvedValue(
+        effectivePermissions,
       );
       mockCacheService.set.mockResolvedValue(undefined);
+      mockPermissionEvaluator.invalidateCache.mockResolvedValue(undefined);
 
       // Act
       await service.batchRefreshPermissions(userIds);
 
       // Assert
       expect(
-        mockPermissionsService.getUserPermissionsBitfield,
+        mockPermissionEvaluator.getEffectivePermissions,
       ).toHaveBeenCalledTimes(2);
       expect(mockCacheService.set).toHaveBeenCalledTimes(2);
     });
@@ -503,14 +521,12 @@ describe('UserPermissionService', () => {
       // Arrange
       const userIds: string[] = [];
 
-      // Spy on logger to verify logging
-
       // Act
       await service.batchRefreshPermissions(userIds);
 
       // Assert
       expect(
-        mockPermissionsService.getUserPermissionsBitfield,
+        mockPermissionEvaluator.getEffectivePermissions,
       ).not.toHaveBeenCalled();
       expect(mockCacheService.set).not.toHaveBeenCalled();
       expect(logger.log).toHaveBeenCalledWith(
@@ -555,33 +571,31 @@ describe('UserPermissionService', () => {
   });
 
   describe('Convenience methods', () => {
-    beforeEach(() => {
-      mockCacheService.get.mockResolvedValue(
-        PERMISSIONS.ARTICLE_CREATE.toString(),
-      );
-    });
-
     describe('isAdmin', () => {
-      it('should return true when user has ADMINISTRATOR permission', async () => {
+      it('should return true when user has article.update permission', async () => {
         // Arrange
         const userId = 'user-123';
-        mockCacheService.get.mockResolvedValue(
-          PERMISSIONS.ADMINISTRATOR.toString(),
-        );
+
+        mockPermissionEvaluator.evaluate.mockResolvedValue(true);
 
         // Act
         const result = await service.isAdmin(userId);
 
         // Assert
         expect(result).toBe(true);
+        expect(mockPermissionEvaluator.evaluate).toHaveBeenCalledWith(
+          userId,
+          'article.update',
+          undefined,
+          undefined,
+        );
       });
 
-      it('should return false when user does not have ADMINISTRATOR permission', async () => {
+      it('should return false when user does not have article.update permission', async () => {
         // Arrange
         const userId = 'user-123';
-        mockCacheService.get.mockResolvedValue(
-          PERMISSIONS.ARTICLE_CREATE.toString(),
-        );
+
+        mockPermissionEvaluator.evaluate.mockResolvedValue(false);
 
         // Act
         const result = await service.isAdmin(userId);
@@ -595,9 +609,8 @@ describe('UserPermissionService', () => {
       it('should return true when user has no admin permissions', async () => {
         // Arrange
         const userId = 'user-123';
-        const userPermissions =
-          PERMISSIONS.ARTICLE_CREATE | PERMISSIONS.COMMENT_CREATE;
-        mockCacheService.get.mockResolvedValue(userPermissions.toString());
+
+        mockPermissionEvaluator.evaluate.mockResolvedValue(false); // isAdmin returns false
 
         // Act
         const result = await service.isRegularUser(userId);
@@ -609,9 +622,8 @@ describe('UserPermissionService', () => {
       it('should return false when user has admin permissions', async () => {
         // Arrange
         const userId = 'user-123';
-        const userPermissions =
-          PERMISSIONS.ARTICLE_CREATE | PERMISSIONS.ADMINISTRATOR;
-        mockCacheService.get.mockResolvedValue(userPermissions.toString());
+
+        mockPermissionEvaluator.evaluate.mockResolvedValue(true); // isAdmin returns true
 
         // Act
         const result = await service.isRegularUser(userId);
@@ -625,9 +637,10 @@ describe('UserPermissionService', () => {
       it('should return true when user can manage content', async () => {
         // Arrange
         const userId = 'user-123';
-        const userPermissions =
-          PERMISSIONS.ARTICLE_CREATE | PERMISSIONS.ARTICLE_EDIT;
-        mockCacheService.get.mockResolvedValue(userPermissions.toString());
+
+        mockPermissionEvaluator.evaluate
+          .mockResolvedValueOnce(true) // all: article.create
+          .mockResolvedValueOnce(true); // any: article.update
 
         // Act
         const result = await service.canManageContent(userId);
@@ -639,8 +652,8 @@ describe('UserPermissionService', () => {
       it('should return false when user cannot manage content', async () => {
         // Arrange
         const userId = 'user-123';
-        const userPermissions = PERMISSIONS.COMMENT_CREATE; // Missing ARTICLE_CREATE
-        mockCacheService.get.mockResolvedValue(userPermissions.toString());
+
+        mockPermissionEvaluator.evaluate.mockResolvedValueOnce(false); // Missing article.create
 
         // Act
         const result = await service.canManageContent(userId);
@@ -654,9 +667,8 @@ describe('UserPermissionService', () => {
       it('should return true when user can moderate content', async () => {
         // Arrange
         const userId = 'user-123';
-        const userPermissions =
-          PERMISSIONS.ARTICLE_EDIT | PERMISSIONS.COMMENT_EDIT;
-        mockCacheService.get.mockResolvedValue(userPermissions.toString());
+
+        mockPermissionEvaluator.evaluate.mockResolvedValueOnce(true);
 
         // Act
         const result = await service.canModerateContent(userId);
@@ -668,8 +680,8 @@ describe('UserPermissionService', () => {
       it('should return false when user cannot moderate content', async () => {
         // Arrange
         const userId = 'user-123';
-        const userPermissions = PERMISSIONS.ARTICLE_CREATE; // Missing edit permissions
-        mockCacheService.get.mockResolvedValue(userPermissions.toString());
+
+        mockPermissionEvaluator.evaluate.mockResolvedValueOnce(false);
 
         // Act
         const result = await service.canModerateContent(userId);
@@ -684,10 +696,10 @@ describe('UserPermissionService', () => {
         // Arrange
         const userId = 'user-123';
         const organizationId = 'org-456';
-        const userPermissions =
-          PERMISSIONS.ORGANIZATION_MANAGE_MEMBERS |
-          PERMISSIONS.ORGANIZATION_MANAGE_SETTINGS;
-        mockCacheService.get.mockResolvedValue(userPermissions.toString());
+
+        mockPermissionEvaluator.evaluate
+          .mockResolvedValueOnce(true) // organization.update
+          .mockResolvedValueOnce(false); // organization.delete (should not have)
 
         // Act
         const result = await service.canManageOrganization(
@@ -703,8 +715,8 @@ describe('UserPermissionService', () => {
         // Arrange
         const userId = 'user-123';
         const organizationId = 'org-456';
-        const userPermissions = PERMISSIONS.ORGANIZATION_MANAGE_MEMBERS; // Missing SETTINGS
-        mockCacheService.get.mockResolvedValue(userPermissions.toString());
+
+        mockPermissionEvaluator.evaluate.mockResolvedValueOnce(false); // Missing organization.update
 
         // Act
         const result = await service.canManageOrganization(
@@ -748,15 +760,20 @@ describe('UserPermissionService', () => {
       // Arrange
       const userId = 'user-123';
       const organizationId = 'org-456';
-      const userPermissions =
-        PERMISSIONS.ARTICLE_CREATE | PERMISSIONS.ARTICLE_EDIT;
+      const effectivePermissions = {
+        allowPermissions: 555n,
+        denyPermissions: 0n,
+        permissions: {},
+        permissionDetails: {},
+      };
 
-      mockPermissionsService.getUserPermissionsBitfield.mockResolvedValue(
-        userPermissions,
+      mockPermissionEvaluator.getEffectivePermissions.mockResolvedValue(
+        effectivePermissions,
       );
       mockCacheService.set.mockResolvedValue(undefined);
-      mockCacheService.get.mockResolvedValue(userPermissions.toString());
+      mockCacheService.get.mockResolvedValue('555');
       mockCacheService.delete.mockResolvedValue(undefined);
+      mockPermissionEvaluator.evaluate.mockResolvedValue(true);
 
       // Act - Simulate complete user session
       await service.initUserPermissions(userId, organizationId);
@@ -766,46 +783,49 @@ describe('UserPermissionService', () => {
       );
       const hasPermission = await service.hasPermission(
         userId,
-        'ARTICLE_CREATE',
+        'article.create',
         organizationId,
       );
       await service.clearUserPermissions(userId, organizationId);
 
       // Assert
-      expect(cachedPermissions).toBe(userPermissions);
+      expect(cachedPermissions).toBe(555n);
       expect(hasPermission).toBe(true);
       expect(mockCacheService.set).toHaveBeenCalledTimes(1); // Only during init
-      expect(mockCacheService.get).toHaveBeenCalledTimes(2); // getUserPermissions + hasPermission
+      expect(mockCacheService.get).toHaveBeenCalledTimes(1); // getUserPermissions
       expect(mockCacheService.delete).toHaveBeenCalledTimes(1);
     });
 
     it('should handle cache miss and reload scenario', async () => {
       // Arrange
       const userId = 'user-123';
-      const userPermissions = PERMISSIONS.ARTICLE_CREATE;
+      const effectivePermissions = {
+        allowPermissions: 777n,
+        denyPermissions: 0n,
+        permissions: {},
+        permissionDetails: {},
+      };
 
       mockCacheService.get.mockResolvedValueOnce(null); // Cache miss
-      mockPermissionsService.getUserPermissionsBitfield.mockResolvedValue(
-        userPermissions,
+      mockPermissionEvaluator.getEffectivePermissions.mockResolvedValue(
+        effectivePermissions,
       );
       mockCacheService.set.mockResolvedValue(undefined);
-
-      // Spy on logger to verify warning
 
       // Act
       const result = await service.getUserPermissions(userId);
 
       // Assert
-      expect(result).toBe(userPermissions);
+      expect(result).toBe(777n);
       expect(logger.warn).toHaveBeenCalledWith(
         `Cache miss for user ${userId}, loading from database`,
       );
       expect(
-        mockPermissionsService.getUserPermissionsBitfield,
-      ).toHaveBeenCalledWith(userId, undefined);
+        mockPermissionEvaluator.getEffectivePermissions,
+      ).toHaveBeenCalledWith(userId, undefined, undefined);
       expect(mockCacheService.set).toHaveBeenCalledWith(
         `user:permissions:${userId}`,
-        userPermissions.toString(),
+        '777',
         3600,
       );
     });
@@ -815,13 +835,19 @@ describe('UserPermissionService', () => {
       const userId = 'user-123';
       const org1 = 'org-1';
       const org2 = 'org-2';
-      const userPermissions = PERMISSIONS.ARTICLE_CREATE;
+      const effectivePermissions = {
+        allowPermissions: 888n,
+        denyPermissions: 0n,
+        permissions: {},
+        permissionDetails: {},
+      };
 
-      mockPermissionsService.getUserPermissionsBitfield.mockResolvedValue(
-        userPermissions,
+      mockPermissionEvaluator.getEffectivePermissions.mockResolvedValue(
+        effectivePermissions,
       );
       mockCacheService.set.mockResolvedValue(undefined);
-      mockCacheService.get.mockResolvedValue(userPermissions.toString());
+      mockCacheService.get.mockResolvedValue('888');
+      mockPermissionEvaluator.invalidateCache.mockResolvedValue(undefined);
 
       // Act - User switches between organizations
       await service.initUserPermissions(userId, org1);
@@ -831,16 +857,16 @@ describe('UserPermissionService', () => {
       const permissions2 = await service.getUserPermissions(userId, org2);
 
       // Assert
-      expect(permissions1).toBe(userPermissions);
-      expect(permissions2).toBe(userPermissions);
+      expect(permissions1).toBe(888n);
+      expect(permissions2).toBe(888n);
       expect(mockCacheService.set).toHaveBeenCalledWith(
         `user:permissions:${userId}:org:${org1}`,
-        userPermissions.toString(),
+        '888',
         3600,
       );
       expect(mockCacheService.set).toHaveBeenCalledWith(
         `user:permissions:${userId}:org:${org2}`,
-        userPermissions.toString(),
+        '888',
         3600,
       );
     });

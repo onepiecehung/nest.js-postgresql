@@ -13,23 +13,23 @@ import { BaseService } from 'src/common/services/base.service';
 import { seedPermissions } from 'src/db/seed/permissions.seed';
 import { Organization } from 'src/organizations/entities/organization.entity';
 import { UserPermissionService } from 'src/permissions/services/user-permission.service';
-import { PermissionName } from 'src/shared/constants';
 import { CacheService } from 'src/shared/services';
-import { FindOptionsWhere, In, Repository } from 'typeorm';
-import {
-  DEFAULT_ROLES,
-  EffectivePermissions,
-  PERMISSIONS,
-} from './constants/permissions.constants';
+import { FindOptionsWhere, Repository } from 'typeorm';
+import { DEFAULT_ROLES } from './constants/permissions.constants';
 import { AssignRoleDto } from './dto/assign-role.dto';
 import { CreateRoleDto } from './dto/create-role.dto';
-import { EffectivePermissionsDto } from './dto/effective-permissions.dto';
 import { GrantSegmentPermissionDto } from './dto/grant-segment-permission.dto';
 import { RevokeSegmentPermissionDto } from './dto/revoke-segment-permission.dto';
 import { UpdateRoleDto } from './dto/update-role.dto';
 import { Role } from './entities/role.entity';
+import { ScopePermission } from './entities/scope-permission.entity';
 import { UserPermission } from './entities/user-permission.entity';
 import { UserRole } from './entities/user-role.entity';
+import { EffectivePermissions } from './interfaces/effective-permissions.interface';
+import { PermissionEvaluator } from './services/permission-evaluator.service';
+import { PermissionRegistry } from './services/permission-registry.service';
+import { ScopePermissionService } from './services/scope-permission.service';
+import { PermissionKey } from './types/permission-key.type';
 
 /**
  * Permissions service implementing Discord-style permission system
@@ -56,6 +56,15 @@ export class PermissionsService
 
     @Inject(forwardRef(() => UserPermissionService))
     private readonly userPermissionService: UserPermissionService,
+
+    @Inject(forwardRef(() => PermissionEvaluator))
+    private readonly permissionEvaluator: PermissionEvaluator,
+
+    @Inject(forwardRef(() => ScopePermissionService))
+    private readonly scopePermissionService: ScopePermissionService,
+
+    @Inject(forwardRef(() => PermissionRegistry))
+    private readonly permissionRegistry: PermissionRegistry,
   ) {
     super(
       new TypeOrmBaseRepository<Role>(roleRepository),
@@ -75,7 +84,10 @@ export class PermissionsService
           id: true,
           name: true,
           description: true,
-          permissions: true,
+          allowPermissions: true,
+          denyPermissions: true,
+          scopeType: true,
+          scopeId: true,
           position: true,
           color: true,
           mentionable: true,
@@ -139,10 +151,13 @@ export class PermissionsService
    */
   async createRole(dto: CreateRoleDto): Promise<Role> {
     try {
+      // Map permissions to allowPermissions if provided
+      const allowPermissions = dto.permissions || '0';
       const roleData = {
         name: dto.name,
         description: dto.description,
-        permissions: dto.permissions || '0',
+        allowPermissions,
+        denyPermissions: '0',
         position: dto.position || 0,
         color: dto.color,
         mentionable: dto.mentionable || false,
@@ -179,8 +194,14 @@ export class PermissionsService
       if (dto.name !== undefined) updateData.name = dto.name;
       if (dto.description !== undefined)
         updateData.description = dto.description;
-      if (dto.permissions !== undefined)
-        updateData.permissions = dto.permissions;
+      // Map permissions to allowPermissions if provided
+      if (dto.permissions !== undefined) {
+        updateData.allowPermissions = dto.permissions;
+        // Ensure denyPermissions is set if not already
+        if (updateData.denyPermissions === undefined) {
+          updateData.denyPermissions = '0';
+        }
+      }
       if (dto.position !== undefined) updateData.position = dto.position;
       if (dto.color !== undefined) updateData.color = dto.color;
       if (dto.mentionable !== undefined)
@@ -190,7 +211,18 @@ export class PermissionsService
       if (dto.unicodeEmoji !== undefined)
         updateData.unicodeEmoji = dto.unicodeEmoji;
 
-      return this.update(id, updateData);
+      const updated = await this.update(id, updateData);
+
+      // Invalidate cache for all users with this role
+      const userRoles = await this.userRoleRepository.find({
+        where: { roleId: id },
+      });
+      const userIds = userRoles.map((ur) => ur.userId);
+      for (const userId of userIds) {
+        await this.permissionEvaluator.invalidateUserCache(userId);
+      }
+
+      return updated;
     } catch (error: any) {
       if (error instanceof HttpException) {
         throw error;
@@ -261,6 +293,8 @@ export class PermissionsService
       await this.userRoleRepository.save(userRole);
       // Refresh user's cached permissions after role assignment
       await this.userPermissionService.refreshUserPermissions(dto.userId);
+      // Invalidate cache
+      await this.permissionEvaluator.invalidateUserCache(dto.userId);
       return userRole;
     } catch (error: any) {
       if (error instanceof HttpException) {
@@ -297,6 +331,8 @@ export class PermissionsService
       await this.userRoleRepository.remove(assignment);
       // Refresh user's cached permissions after role removal
       await this.userPermissionService.refreshUserPermissions(userId);
+      // Invalidate cache
+      await this.permissionEvaluator.invalidateUserCache(userId);
     } catch (error: any) {
       if (error instanceof HttpException) {
         throw error;
@@ -366,133 +402,9 @@ export class PermissionsService
   }
 
   // ==================== PERMISSION CALCULATION ====================
-
-  /**
-   * Compute effective permissions for a user based on their roles
-   * Calculates permissions by combining all user roles (OR operation)
-   */
-  async computeEffectivePermissions(
-    dto: EffectivePermissionsDto,
-  ): Promise<EffectivePermissions> {
-    try {
-      const { userId } = dto;
-
-      if (!userId) {
-        throw new HttpException(
-          { messageKey: 'permission.INVALID_USER_ID' },
-          HttpStatus.BAD_REQUEST,
-        );
-      }
-
-      // 1. Load user roles (including @everyone role)
-      const userRoles = await this.getUserRoles(userId);
-      const roleIds = userRoles.map((ur) => ur.roleId);
-
-      // Get the everyone role (should always exist)
-      const everyoneRole = await this.findRoleByName(DEFAULT_ROLES.EVERYONE);
-      if (everyoneRole) {
-        roleIds.push(everyoneRole.id);
-      }
-
-      // Get role entities
-      const roles = await this.roleRepository.find({
-        where: { id: In(roleIds) },
-      });
-
-      // 2. Calculate base permissions from roles (OR operation)
-      let permissions = 0n;
-      for (const role of roles) {
-        permissions |= BigInt(role.permissions);
-      }
-
-      // 3. Add permissions from UserPermission records (context-based permissions)
-      // Note: TypeORM automatically excludes soft-deleted records when using DeleteDateColumn
-      // No need to explicitly check deletedAt: null
-      const userPermissions = await this.userPermissionRepository.find({
-        where: {
-          userId,
-        },
-      });
-
-      // Filter valid (not expired) permissions
-      const validUserPermissions = userPermissions.filter((up) => up.isValid());
-
-      // Combine user-specific permissions with role permissions
-      for (const userPerm of validUserPermissions) {
-        permissions |= userPerm.getValueAsBigInt();
-      }
-
-      // Note: No ADMINISTRATOR permission - use role-based checks instead
-      // OWNER role has all permissions by default
-
-      return {
-        mask: permissions,
-        map: this.permissionsMaskToMap(permissions),
-      };
-    } catch (error: any) {
-      if (error instanceof HttpException) {
-        throw error;
-      }
-
-      this.logger.error(
-        `Error computing effective permissions for user ${dto.userId}:`,
-        error,
-      );
-      throw new HttpException(
-        { messageKey: 'permission.PERMISSION_CALCULATION_FAILED' },
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
-  }
-
-  /**
-   * Check if a user has a specific permission
-   */
-  async hasPermission(userId: string, permission: bigint): Promise<boolean> {
-    const effective = await this.computeEffectivePermissions({
-      userId,
-    });
-    return (effective.mask & permission) !== 0n;
-  }
-
-  /**
-   * Get user permissions as bitfield (for backward compatibility with existing code)
-   */
-  async getUserPermissionsBitfield(userId: string): Promise<bigint> {
-    const effective = await this.computeEffectivePermissions({
-      userId,
-    });
-    return effective.mask;
-  }
-
-  /**
-   * Get user permissions (for backward compatibility with existing code)
-   */
-  async getUserPermissions(userId: string): Promise<PermissionName[]> {
-    const effective = await this.computeEffectivePermissions({ userId });
-    const permissions: PermissionName[] = [];
-
-    for (const [key, value] of Object.entries(PERMISSIONS)) {
-      if ((effective.mask & value) !== 0n) {
-        permissions.push(key as PermissionName);
-      }
-    }
-
-    return permissions;
-  }
-
-  /**
-   * Convert permission mask to human-readable boolean map
-   */
-  private permissionsMaskToMap(mask: bigint): Record<string, boolean> {
-    const map: Record<string, boolean> = {};
-
-    for (const [key, value] of Object.entries(PERMISSIONS)) {
-      map[key] = (mask & value) !== 0n;
-    }
-
-    return map;
-  }
+  // Use PermissionEvaluator methods for permission evaluation
+  // getUserEffectivePermissions() replaces computeEffectivePermissions()
+  // evaluate() replaces hasPermission() with bigint parameter
 
   // ==================== UTILITY METHODS ====================
 
@@ -510,7 +422,9 @@ export class PermissionsService
       {
         name: `${roleNamePrefix}${DEFAULT_ROLES.EVERYONE}`,
         description: 'Default role assigned to all users',
-        permissions: '0',
+        permissions: '0', // Legacy field - use allowPermissions instead
+        allowPermissions: '0',
+        denyPermissions: '0',
         position: 0,
         mentionable: false,
         organization,
@@ -518,7 +432,9 @@ export class PermissionsService
       {
         name: `${roleNamePrefix}${DEFAULT_ROLES.MEMBER}`,
         description: 'Default role for server members',
-        permissions: '0',
+        permissions: '0', // Legacy field - use allowPermissions instead
+        allowPermissions: '0',
+        denyPermissions: '0',
         position: 1,
         mentionable: false,
         organization,
@@ -526,7 +442,9 @@ export class PermissionsService
       {
         name: `${roleNamePrefix}${DEFAULT_ROLES.MODERATOR}`,
         description: 'Server moderators with moderation permissions',
-        permissions: this.calculateModeratorPermissions().toString(),
+        permissions: this.calculateModeratorPermissions().toString(), // Legacy field - use allowPermissions instead
+        allowPermissions: this.calculateModeratorPermissions().toString(),
+        denyPermissions: '0',
         position: 2,
         mentionable: true,
         organization,
@@ -534,7 +452,9 @@ export class PermissionsService
       {
         name: `${roleNamePrefix}${DEFAULT_ROLES.ADMIN}`,
         description: 'Server administrators with administrative permissions',
-        permissions: this.calculateAdminPermissions().toString(),
+        permissions: this.calculateAdminPermissions().toString(), // Legacy field - use allowPermissions instead
+        allowPermissions: this.calculateAdminPermissions().toString(),
+        denyPermissions: '0',
         position: 3,
         mentionable: true,
         organization,
@@ -542,7 +462,9 @@ export class PermissionsService
       {
         name: `${roleNamePrefix}${DEFAULT_ROLES.OWNER}`,
         description: 'Server owner with full permissions',
-        permissions: (~0n).toString(),
+        permissions: (~0n).toString(), // Legacy field - use allowPermissions instead
+        allowPermissions: (~0n).toString(), // All permissions allowed
+        denyPermissions: '0',
         position: 4,
         mentionable: true,
         organization,
@@ -571,41 +493,48 @@ export class PermissionsService
   }
 
   /**
-   * Calculate permissions for moderator role using existing constants
+   * Calculate permissions for moderator role using PermissionKeys
    * Moderators can read and moderate content, but cannot manage all articles
    */
   private calculateModeratorPermissions(): bigint {
-    return (
-      PERMISSIONS.ARTICLE_READ |
-      PERMISSIONS.ARTICLE_UPDATE |
-      PERMISSIONS.SERIES_UPDATE |
-      PERMISSIONS.MEDIA_UPLOAD |
-      PERMISSIONS.STICKER_READ |
-      PERMISSIONS.REPORT_READ |
-      PERMISSIONS.REPORT_MODERATE
-    );
+    const permissionKeys: PermissionKey[] = [
+      'article.read',
+      'article.update',
+      'series.update',
+      'media.create',
+      'sticker.read',
+      'report.read',
+      'report.update',
+    ];
+    return this.permissionRegistry.getBitMasks(permissionKeys);
   }
 
   /**
-   * Calculate permissions for admin role using existing constants
+   * Calculate permissions for admin role using PermissionKeys
    * Admins have most permissions but not full owner access
    */
   private calculateAdminPermissions(): bigint {
-    return (
-      this.calculateModeratorPermissions() |
-      PERMISSIONS.ARTICLE_CREATE |
-      PERMISSIONS.ARTICLE_MANAGE_ALL |
-      PERMISSIONS.SERIES_CREATE |
-      PERMISSIONS.SEGMENTS_CREATE |
-      PERMISSIONS.SEGMENTS_UPDATE |
-      PERMISSIONS.STICKER_CREATE |
-      PERMISSIONS.STICKER_UPDATE |
-      PERMISSIONS.STICKER_DELETE |
-      PERMISSIONS.ORGANIZATION_MANAGE_MEMBERS |
-      PERMISSIONS.ORGANIZATION_MANAGE_SETTINGS |
-      PERMISSIONS.ORGANIZATION_VIEW_ANALYTICS |
-      PERMISSIONS.ORGANIZATION_INVITE_MEMBERS
-    );
+    const permissionKeys: PermissionKey[] = [
+      // Moderator permissions
+      'article.read',
+      'article.update',
+      'series.update',
+      'media.create',
+      'sticker.read',
+      'report.read',
+      'report.update',
+      // Admin additional permissions
+      'article.create',
+      'series.create',
+      'segment.create',
+      'segment.update',
+      'sticker.create',
+      'sticker.update',
+      'sticker.delete',
+      'organization.update',
+      'organization.read',
+    ];
+    return this.permissionRegistry.getBitMasks(permissionKeys);
   }
 
   // ==================== SEGMENT PERMISSIONS MANAGEMENT ====================
@@ -618,9 +547,10 @@ export class PermissionsService
     dto: GrantSegmentPermissionDto,
   ): Promise<UserPermission> {
     try {
-      // Get permission bitmask
-      const permissionBit = PERMISSIONS[dto.permission];
-      if (!permissionBit) {
+      // Get bitmask for PermissionKey
+      const permissionKey = dto.permission;
+      const permissionBit = this.permissionRegistry.getBitMask(permissionKey);
+      if (permissionBit === 0n) {
         throw new HttpException(
           { messageKey: 'permission.INVALID_PERMISSION' },
           HttpStatus.BAD_REQUEST,
@@ -645,10 +575,12 @@ export class PermissionsService
       }
 
       // Create or restore permission
+      // Use allowPermissions and denyPermissions fields
       const userPermissionData = {
         userId: dto.userId,
         permission: dto.permission,
-        value: permissionBit.toString(),
+        allowPermissions: permissionBit.toString(),
+        denyPermissions: '0',
         contextId: dto.segmentId,
         contextType: 'segment',
         reason: dto.reason,
@@ -668,6 +600,8 @@ export class PermissionsService
 
       // Refresh user's cached permissions
       await this.userPermissionService.refreshUserPermissions(dto.userId);
+      // Invalidate cache
+      await this.permissionEvaluator.invalidateUserCache(dto.userId);
 
       this.logger.log(
         `Granted ${dto.permission} permission for segment ${dto.segmentId} to user ${dto.userId}`,
@@ -718,6 +652,8 @@ export class PermissionsService
 
       // Refresh user's cached permissions
       await this.userPermissionService.refreshUserPermissions(dto.userId);
+      // Invalidate cache
+      await this.permissionEvaluator.invalidateUserCache(dto.userId);
 
       this.logger.log(
         `Revoked ${dto.permission} permission for segment ${dto.segmentId} from user ${dto.userId}`,
@@ -746,31 +682,13 @@ export class PermissionsService
    */
   async canUpdateSegment(userId: string, segmentId: string): Promise<boolean> {
     try {
-      // 1. Check if user has general SEGMENTS_UPDATE permission (from roles)
-      const hasGeneralPermission = await this.hasPermission(
+      // Use permission evaluation
+      return this.permissionEvaluator.evaluate(
         userId,
-        PERMISSIONS.SEGMENTS_UPDATE,
+        'segment.update',
+        'segment',
+        segmentId,
       );
-
-      if (hasGeneralPermission) {
-        return true;
-      }
-
-      // 2. Check if user has specific permission for this segment
-      const segmentPermission = await this.userPermissionRepository.findOne({
-        where: {
-          userId,
-          permission: 'SEGMENTS_UPDATE',
-          contextId: segmentId,
-          contextType: 'segment',
-        },
-      });
-
-      if (segmentPermission && segmentPermission.isValid()) {
-        return true;
-      }
-
-      return false;
     } catch (error) {
       this.logger.error(
         `Error checking segment update permission for user ${userId} and segment ${segmentId}:`,
@@ -822,52 +740,28 @@ export class PermissionsService
    * Works with any context type (segment, article, organization, etc.)
    *
    * @param userId - User ID
-   * @param permission - Permission name to check
+   * @param permissionKey - PermissionKey to check
    * @param contextType - Type of context (e.g., 'segment', 'article')
    * @param contextId - ID of the resource
    * @returns true if user has permission (general OR context-specific)
    */
   async hasContextPermission(
     userId: string,
-    permission: PermissionName,
+    permissionKey: PermissionKey,
     contextType: string,
     contextId: string,
   ): Promise<boolean> {
     try {
-      // 1. Check if user has general permission (from roles)
-      const permissionBit = PERMISSIONS[permission];
-      if (!permissionBit) {
-        this.logger.warn(`Invalid permission: ${permission}`);
-        return false;
-      }
-
-      const hasGeneralPermission = await this.hasPermission(
+      // Use permission evaluation with context
+      return this.permissionEvaluator.evaluate(
         userId,
-        permissionBit,
+        permissionKey,
+        contextType,
+        contextId,
       );
-
-      if (hasGeneralPermission) {
-        return true; // General permission allows access to all resources
-      }
-
-      // 2. Check if user has specific permission for this context
-      const contextPermission = await this.userPermissionRepository.findOne({
-        where: {
-          userId,
-          permission,
-          contextId,
-          contextType,
-        },
-      });
-
-      if (contextPermission && contextPermission.isValid()) {
-        return true; // Context-specific permission found
-      }
-
-      return false;
     } catch (error) {
       this.logger.error(
-        `Error checking context permission for user ${userId}, context ${contextType}:${contextId}, permission ${permission}:`,
+        `Error checking context permission for user ${userId}, context ${contextType}:${contextId}, permission ${permissionKey}:`,
         error,
       );
       return false;
@@ -877,22 +771,22 @@ export class PermissionsService
   /**
    * Check if user has any of the required permissions for a context
    * @param userId - User ID
-   * @param permissions - Array of permission names to check
+   * @param permissionKeys - Array of PermissionKeys to check
    * @param contextType - Type of context
    * @param contextId - ID of the resource
    * @returns true if user has at least one of the permissions
    */
   async hasAnyContextPermission(
     userId: string,
-    permissions: PermissionName[],
+    permissionKeys: PermissionKey[],
     contextType: string,
     contextId: string,
   ): Promise<boolean> {
-    for (const permission of permissions) {
+    for (const permissionKey of permissionKeys) {
       if (
         await this.hasContextPermission(
           userId,
-          permission,
+          permissionKey,
           contextType,
           contextId,
         )
@@ -906,22 +800,22 @@ export class PermissionsService
   /**
    * Check if user has all of the required permissions for a context
    * @param userId - User ID
-   * @param permissions - Array of permission names to check
+   * @param permissionKeys - Array of PermissionKeys to check
    * @param contextType - Type of context
    * @param contextId - ID of the resource
    * @returns true if user has all permissions
    */
   async hasAllContextPermissions(
     userId: string,
-    permissions: PermissionName[],
+    permissionKeys: PermissionKey[],
     contextType: string,
     contextId: string,
   ): Promise<boolean> {
-    for (const permission of permissions) {
+    for (const permissionKey of permissionKeys) {
       if (
         !(await this.hasContextPermission(
           userId,
-          permission,
+          permissionKey,
           contextType,
           contextId,
         ))
@@ -930,5 +824,128 @@ export class PermissionsService
       }
     }
     return true;
+  }
+
+  // ==================== PERMISSION METHODS ====================
+
+  /**
+   * Evaluate if a user has a specific permission
+   * @param userId - User ID
+   * @param permissionKey - PermissionKey to check
+   * @param scopeType - Optional scope type
+   * @param scopeId - Optional scope ID
+   * @returns true if user has permission, false otherwise
+   */
+  async evaluate(
+    userId: string,
+    permissionKey: PermissionKey,
+    scopeType?: string,
+    scopeId?: string,
+  ): Promise<boolean> {
+    return this.permissionEvaluator.evaluate(
+      userId,
+      permissionKey,
+      scopeType,
+      scopeId,
+    );
+  }
+
+  /**
+   * Get effective permissions for a user in a scope
+   * @param userId - User ID
+   * @param scopeType - Optional scope type
+   * @param scopeId - Optional scope ID
+   * @returns EffectivePermissions with all permissions
+   */
+  async getUserEffectivePermissions(
+    userId: string,
+    scopeType?: string,
+    scopeId?: string,
+  ): Promise<EffectivePermissions> {
+    return this.permissionEvaluator.getEffectivePermissions(
+      userId,
+      scopeType,
+      scopeId,
+    );
+  }
+
+  /**
+   * Grant a scope permission
+   * @param scopeType - Type of scope
+   * @param scopeId - ID of scope
+   * @param permissionKey - PermissionKey to grant
+   * @param allow - Whether to allow (true) or deny (false)
+   * @returns Created or updated scope permission
+   */
+  async grantScopePermission(
+    scopeType: string,
+    scopeId: string,
+    permissionKey: string,
+    allow: boolean = true,
+  ): Promise<ScopePermission> {
+    return this.scopePermissionService.grantScopePermission(
+      scopeType,
+      scopeId,
+      permissionKey,
+      allow,
+    );
+  }
+
+  /**
+   * Revoke a scope permission
+   * @param scopeType - Type of scope
+   * @param scopeId - ID of scope
+   * @param permissionKey - PermissionKey to revoke
+   */
+  async revokeScopePermission(
+    scopeType: string,
+    scopeId: string,
+    permissionKey: string,
+  ): Promise<void> {
+    return this.scopePermissionService.revokeScopePermission(
+      scopeType,
+      scopeId,
+      permissionKey,
+    );
+  }
+
+  /**
+   * Update role permissions using bitfields
+   * @param roleId - Role ID
+   * @param allowPermissions - Allow permissions bitmask
+   * @param denyPermissions - Deny permissions bitmask
+   * @returns Updated role
+   */
+  async updateRolePermissions(
+    roleId: string,
+    allowPermissions: string,
+    denyPermissions: string,
+  ): Promise<Role> {
+    const role = await this.findById(roleId);
+    if (!role) {
+      throw new HttpException(
+        { messageKey: 'permission.ROLE_NOT_FOUND' },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    role.allowPermissions = allowPermissions;
+    role.denyPermissions = denyPermissions;
+
+    const updated = await this.update(roleId, {
+      allowPermissions,
+      denyPermissions,
+    });
+
+    // Invalidate cache for all users with this role
+    const userRoles = await this.userRoleRepository.find({
+      where: { roleId },
+    });
+    const userIds = userRoles.map((ur) => ur.userId);
+    for (const userId of userIds) {
+      await this.permissionEvaluator.invalidateUserCache(userId);
+    }
+
+    return updated;
   }
 }

@@ -31,7 +31,7 @@ export class ArticlesController {
     ANALYTICS_CONSTANTS.EVENT_CATEGORIES.CONTENT,
     ANALYTICS_CONSTANTS.SUBJECT_TYPES.ARTICLE,
   )
-  // @RequirePermissions({ all: ['ARTICLE_CREATE'] })
+  // @RequirePermissions({ all: ['article.create'] })
   @Auth()
   create(
     @Body() createArticleDto: CreateArticleDto,
@@ -96,8 +96,7 @@ export class ArticlesController {
     ANALYTICS_CONSTANTS.SUBJECT_TYPES.ARTICLE,
   )
   @RequirePermissions({
-    all: ['ARTICLE_UPDATE'],
-    any: ['ARTICLE_MANAGE_ALL'], // Admin có thể edit tất cả bài viết
+    all: ['article.update'],
   })
   update(
     @Param('id', new SnowflakeIdPipe()) id: string,
@@ -114,8 +113,7 @@ export class ArticlesController {
     ANALYTICS_CONSTANTS.SUBJECT_TYPES.ARTICLE,
   )
   @RequirePermissions({
-    all: ['ARTICLE_UPDATE'],
-    any: ['ARTICLE_MANAGE_ALL'], // Admin có thể publish tất cả bài viết
+    all: ['article.update'],
   })
   publish(@Param('id', new SnowflakeIdPipe()) id: string) {
     return this.articlesService.updateArticle(id, { status: 'published' });
@@ -128,8 +126,7 @@ export class ArticlesController {
     ANALYTICS_CONSTANTS.SUBJECT_TYPES.ARTICLE,
   )
   @RequirePermissions({
-    all: ['ARTICLE_UPDATE'],
-    any: ['ARTICLE_MANAGE_ALL'], // Admin có thể unpublish tất cả bài viết
+    all: ['article.update'],
   })
   @Auth()
   unpublish(@Param('id', new SnowflakeIdPipe()) id: string) {
@@ -143,8 +140,7 @@ export class ArticlesController {
     ANALYTICS_CONSTANTS.SUBJECT_TYPES.ARTICLE,
   )
   @RequirePermissions({
-    all: ['ARTICLE_UPDATE'],
-    any: ['ARTICLE_MANAGE_ALL'], // Admin có thể xóa tất cả bài viết
+    all: ['article.update'],
   })
   @Auth()
   remove(@Param('id', new SnowflakeIdPipe()) id: string) {

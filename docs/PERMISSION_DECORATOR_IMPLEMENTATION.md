@@ -16,22 +16,19 @@ import { Auth, RequirePermissions } from 'src/common/decorators';
 
 #### **POST /articles** - Tạo bài viết
 ```typescript
-@RequirePermissions({ all: ['ARTICLE_CREATE'] })
+@RequirePermissions({ all: ['article.create'] })
 ```
-- **Mục đích**: Chỉ những user có quyền `ARTICLE_CREATE` mới có thể tạo bài viết
-- **Logic**: Phải có quyền `ARTICLE_CREATE` (AND operation)
+- **Mục đích**: Chỉ những user có quyền `article.create` mới có thể tạo bài viết
+- **Logic**: Phải có quyền `article.create` (AND operation)
 
 #### **GET /articles** - Xem danh sách bài viết
 ```typescript
 @RequirePermissions({
-  any: ['ARTICLE_VIEW_DRAFTS', 'ARTICLE_MANAGE_ALL'],
-  none: ['ARTICLE_CREATE'], // Chỉ xem được bài viết đã publish, không cần quyền tạo
+  any: ['article.read'],
 })
 ```
-- **Mục đích**: 
-  - User có quyền `ARTICLE_VIEW_DRAFTS` hoặc `ARTICLE_MANAGE_ALL` có thể xem tất cả bài viết (kể cả draft)
-  - User không có quyền `ARTICLE_CREATE` chỉ xem được bài viết đã publish
-- **Logic**: (ARTICLE_VIEW_DRAFTS OR ARTICLE_MANAGE_ALL) AND NOT ARTICLE_CREATE
+- **Mục đích**: User có quyền `article.read` có thể xem bài viết
+- **Logic**: Phải có quyền `article.read` (OR operation)
 
 #### **GET /articles/cursor** - Xem danh sách với cursor pagination
 ```typescript
@@ -54,93 +51,88 @@ import { Auth, RequirePermissions } from 'src/common/decorators';
 #### **PATCH /articles/:id** - Cập nhật bài viết
 ```typescript
 @RequirePermissions({
-  all: ['ARTICLE_EDIT'],
-  any: ['ARTICLE_MANAGE_ALL'], // Admin có thể edit tất cả bài viết
+  all: ['article.update'],
 })
 ```
-- **Mục đích**: 
-  - User có quyền `ARTICLE_EDIT` có thể edit bài viết của mình
-  - Admin có quyền `ARTICLE_MANAGE_ALL` có thể edit tất cả bài viết
-- **Logic**: ARTICLE_EDIT AND (ARTICLE_MANAGE_ALL OR ownership check)
+- **Mục đích**: User có quyền `article.update` có thể cập nhật bài viết
+- **Logic**: Phải có quyền `article.update` (AND operation)
 
 #### **PATCH /articles/:id/publish** - Publish bài viết
 ```typescript
 @RequirePermissions({
-  all: ['ARTICLE_PUBLISH'],
-  any: ['ARTICLE_MANAGE_ALL'], // Admin có thể publish tất cả bài viết
+  all: ['article.update'],
 })
 ```
-- **Mục đích**: Chỉ user có quyền `ARTICLE_PUBLISH` hoặc admin mới có thể publish bài viết
-- **Logic**: ARTICLE_PUBLISH AND (ARTICLE_MANAGE_ALL OR ownership check)
+- **Mục đích**: User có quyền `article.update` có thể publish bài viết
+- **Logic**: Phải có quyền `article.update` (AND operation)
 
 #### **PATCH /articles/:id/unpublish** - Unpublish bài viết
 ```typescript
 @RequirePermissions({
-  all: ['ARTICLE_PUBLISH'],
-  any: ['ARTICLE_MANAGE_ALL'], // Admin có thể unpublish tất cả bài viết
+  all: ['article.update'],
 })
 ```
-- **Logic**: Tương tự như publish
+- **Logic**: Tương tự như publish - cần quyền `article.update`
 
 #### **DELETE /articles/:id** - Xóa bài viết
 ```typescript
 @RequirePermissions({
-  all: ['ARTICLE_DELETE'],
-  any: ['ARTICLE_MANAGE_ALL'], // Admin có thể xóa tất cả bài viết
+  all: ['article.update'],
 })
 ```
-- **Mục đích**: Chỉ user có quyền `ARTICLE_DELETE` hoặc admin mới có thể xóa bài viết
-- **Logic**: ARTICLE_DELETE AND (ARTICLE_MANAGE_ALL OR ownership check)
+- **Mục đích**: User có quyền `article.update` có thể xóa bài viết
+- **Logic**: Phải có quyền `article.update` (AND operation)
 
 ## Các Pattern Sử Dụng
 
 ### 1. **Simple Permission Check**
 ```typescript
-@RequirePermissions({ all: ['ARTICLE_CREATE'] })
+@RequirePermissions({ all: ['article.create'] })
 ```
 - Kiểm tra user phải có quyền cụ thể
 
 ### 2. **OR Logic**
 ```typescript
-@RequirePermissions({ any: ['ARTICLE_VIEW_DRAFTS', 'ARTICLE_MANAGE_ALL'] })
+@RequirePermissions({ any: ['article.read', 'article.update'] })
 ```
 - User có thể có một trong các quyền được liệt kê
 
 ### 3. **AND Logic**
 ```typescript
-@RequirePermissions({ all: ['ARTICLE_EDIT'] })
+@RequirePermissions({ all: ['article.update'] })
 ```
 - User phải có tất cả quyền được liệt kê
 
 ### 4. **Complex Logic**
 ```typescript
 @RequirePermissions({
-  all: ['ARTICLE_EDIT'],
-  any: ['ARTICLE_MANAGE_ALL'],
-  none: ['BANNED_USER']
+  all: ['article.update'],
+  any: ['article.delete'],
+  none: ['article.read']
 })
 ```
-- User phải có `ARTICLE_EDIT` AND (`ARTICLE_MANAGE_ALL` OR ownership) AND không bị ban
+- User phải có `article.update` AND (`article.delete` OR ownership) AND không có quyền đọc
 
-### 5. **Exclusion Logic**
+### 5. **With Scope Context**
 ```typescript
 @RequirePermissions({
-  any: ['ARTICLE_VIEW_DRAFTS', 'ARTICLE_MANAGE_ALL'],
-  none: ['ARTICLE_CREATE']
+  all: ['organization.update'],
+  scopeType: 'organization',
+  autoDetectScope: true
 })
 ```
-- User có thể xem draft HOẶC có quyền admin, NHƯNG không được có quyền tạo bài viết
+- User phải có quyền `organization.update` trong scope của organization được tự động phát hiện từ request
 
 ## Quyền hạn theo Role
 
 ### **OWNER** (Tất cả quyền)
-- `ARTICLE_CREATE`, `ARTICLE_EDIT`, `ARTICLE_DELETE`, `ARTICLE_PUBLISH`, `ARTICLE_VIEW_DRAFTS`, `ARTICLE_MANAGE_ALL`
+- `article.create`, `article.read`, `article.update`, `article.delete`
 
 ### **ADMIN** (Quyền quản lý)
-- `ARTICLE_CREATE`, `ARTICLE_EDIT`, `ARTICLE_PUBLISH`, `ARTICLE_VIEW_DRAFTS`, `ARTICLE_MANAGE_ALL`
+- `article.create`, `article.read`, `article.update`
 
 ### **MEMBER** (Quyền cơ bản)
-- `ARTICLE_CREATE`, `ARTICLE_EDIT`
+- `article.create`, `article.read`
 
 ## Lợi ích của Implementation
 
@@ -185,7 +177,7 @@ import { Auth, RequirePermissions } from 'src/common/decorators';
 - Service layer kiểm tra ownership và business rules
 
 ### 4. **Sử dụng consistent naming**
-- Tất cả permission names đều có prefix `ARTICLE_`
+- Tất cả permission keys đều theo format `{component}.{action}` (e.g., `article.create`, `organization.update`)
 - Dễ dàng identify và maintain
 
 ## Kết luận

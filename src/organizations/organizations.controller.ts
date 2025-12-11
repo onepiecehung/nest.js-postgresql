@@ -82,7 +82,11 @@ export class OrganizationsController {
    * Only organization owners or admins can update organizations
    */
   @Patch(':id')
-  @RequirePermissions({ all: ['ORGANIZATION_MANAGE_SETTINGS'] })
+  @RequirePermissions({
+    all: ['organization.update'],
+    scopeType: 'organization',
+    autoDetectScope: true,
+  })
   @Auth()
   async update(
     @Param('id', SnowflakeIdPipe) id: string,
@@ -99,7 +103,11 @@ export class OrganizationsController {
    * Only organization owners can delete their organizations
    */
   @Delete(':id')
-  @RequirePermissions({ all: ['ORGANIZATION_DELETE'] })
+  @RequirePermissions({
+    all: ['organization.delete'],
+    scopeType: 'organization',
+    autoDetectScope: true,
+  })
   @Auth()
   @HttpCode(HttpStatus.NO_CONTENT)
   async remove(@Param('id', SnowflakeIdPipe) id: string): Promise<void> {
@@ -111,7 +119,11 @@ export class OrganizationsController {
    * Requires permission to view organization members
    */
   @Get(':id/members')
-  @RequirePermissions({ all: ['ORGANIZATION_MANAGE_MEMBERS'] })
+  @RequirePermissions({
+    all: ['organization.update'],
+    scopeType: 'organization',
+    autoDetectScope: true,
+  })
   @Auth()
   async getOrganizationMembers(@Param('id', SnowflakeIdPipe) id: string) {
     return this.organizationsService.getOrganizationMembers(id);
@@ -122,7 +134,11 @@ export class OrganizationsController {
    * Requires permission to manage organization members
    */
   @Post(':id/members/:userId/roles/:roleId')
-  @RequirePermissions({ all: ['ORGANIZATION_MANAGE_MEMBERS'] })
+  @RequirePermissions({
+    all: ['organization.update'],
+    scopeType: 'organization',
+    autoDetectScope: true,
+  })
   @Auth()
   @HttpCode(HttpStatus.CREATED)
   async assignOrganizationRole(
@@ -142,7 +158,11 @@ export class OrganizationsController {
    * Requires permission to manage organization members
    */
   @Delete(':id/members/:userId/roles/:roleId')
-  @RequirePermissions({ all: ['ORGANIZATION_MANAGE_MEMBERS'] })
+  @RequirePermissions({
+    all: ['organization.update'],
+    scopeType: 'organization',
+    autoDetectScope: true,
+  })
   @Auth()
   @HttpCode(HttpStatus.NO_CONTENT)
   async removeOrganizationRole(

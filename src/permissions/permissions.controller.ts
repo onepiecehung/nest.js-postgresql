@@ -5,6 +5,7 @@ import {
   Delete,
   Get,
   HttpCode,
+  HttpException,
   HttpStatus,
   Param,
   Patch,
@@ -14,7 +15,6 @@ import {
 } from '@nestjs/common';
 import { Auth } from 'src/common/decorators';
 import { AuthPayload } from 'src/common/interface';
-import { EffectivePermissions } from './constants/permissions.constants';
 import { AssignRoleDto } from './dto/assign-role.dto';
 import { CreateRoleDto } from './dto/create-role.dto';
 import { EffectivePermissionsDto } from './dto/effective-permissions.dto';
@@ -24,6 +24,7 @@ import { UpdateRoleDto } from './dto/update-role.dto';
 import { Role } from './entities/role.entity';
 import { UserPermission } from './entities/user-permission.entity';
 import { UserRole } from './entities/user-role.entity';
+import { EffectivePermissions } from './interfaces/effective-permissions.interface';
 import { PermissionsService } from './permissions.service';
 
 /**
@@ -117,7 +118,17 @@ export class PermissionsController {
   async computeEffectivePermissions(
     @Query() dto: EffectivePermissionsDto,
   ): Promise<EffectivePermissions> {
-    return this.permissionsService.computeEffectivePermissions(dto);
+    if (!dto.userId) {
+      throw new HttpException(
+        { messageKey: 'permissions.userIdRequired' },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+    return this.permissionsService.getUserEffectivePermissions(
+      dto.userId,
+      dto.scopeType,
+      dto.scopeId,
+    );
   }
 
   // ==================== SEGMENT PERMISSIONS ENDPOINTS ====================
