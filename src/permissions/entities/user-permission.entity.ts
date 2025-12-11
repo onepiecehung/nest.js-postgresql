@@ -33,11 +33,21 @@ export class UserPermission extends BaseEntityCustom {
   @Column({ type: 'varchar', length: 100 })
   permission: string;
 
+  // Use allowPermissions and denyPermissions for permission bitfields
+
   /**
-   * Permission value (bitmask as string)
+   * Allow permissions bitmask stored as string for safe BigInt handling
+   * Contains bitwise permissions that this user permission allows
    */
-  @Column({ type: 'bigint', default: '0' })
-  value: string;
+  @Column({ type: 'bigint', nullable: true, default: null })
+  allowPermissions?: string;
+
+  /**
+   * Deny permissions bitmask stored as string for safe BigInt handling
+   * Contains bitwise permissions that this user permission explicitly denies
+   */
+  @Column({ type: 'bigint', nullable: true, default: null })
+  denyPermissions?: string;
 
   /**
    * Optional context for the permission (e.g., channel ID, organization ID)
@@ -69,18 +79,35 @@ export class UserPermission extends BaseEntityCustom {
   @Column({ type: 'timestamptz', nullable: true })
   expiresAt?: Date;
 
+  // Use getAllowPermissionsAsBigInt() and setAllowPermissionsFromBigInt() for allow permissions
+  // Use getDenyPermissionsAsBigInt() and setDenyPermissionsFromBigInt() for deny permissions
+
   /**
-   * Get permission value as BigInt for bitwise operations
+   * Get allow permissions as BigInt for bitwise operations
    */
-  getValueAsBigInt(): bigint {
-    return BigInt(this.value);
+  getAllowPermissionsAsBigInt(): bigint {
+    return this.allowPermissions ? BigInt(this.allowPermissions) : 0n;
   }
 
   /**
-   * Set permission value from BigInt
+   * Set allow permissions from BigInt value
    */
-  setValueFromBigInt(value: bigint): void {
-    this.value = value.toString();
+  setAllowPermissionsFromBigInt(permissions: bigint): void {
+    this.allowPermissions = permissions.toString();
+  }
+
+  /**
+   * Get deny permissions as BigInt for bitwise operations
+   */
+  getDenyPermissionsAsBigInt(): bigint {
+    return this.denyPermissions ? BigInt(this.denyPermissions) : 0n;
+  }
+
+  /**
+   * Set deny permissions from BigInt value
+   */
+  setDenyPermissionsFromBigInt(permissions: bigint): void {
+    this.denyPermissions = permissions.toString();
   }
 
   /**

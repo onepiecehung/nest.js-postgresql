@@ -4,6 +4,7 @@ import { TypeOrmBaseRepository } from 'src/common/repositories/typeorm.base-repo
 import { BaseService } from 'src/common/services';
 import { createSlug, generateUniqueSlug } from 'src/common/utils/slug.util';
 import { PermissionsService } from 'src/permissions/permissions.service';
+import { PermissionKey } from 'src/permissions/types/permission-key.type';
 import { ORGANIZATION_CONSTANTS } from 'src/shared/constants';
 import { CacheService } from 'src/shared/services';
 import { Repository } from 'typeorm';
@@ -353,13 +354,13 @@ export class OrganizationsService extends BaseService<Organization> {
    *
    * @param userId - User ID to check permissions for
    * @param organizationId - Organization ID
-   * @param permission - Permission to check (e.g., 'ORGANIZATION_MANAGE_MEMBERS')
+   * @param permission - PermissionKey to check (e.g., 'organization.update')
    * @returns True if user has the required permission
    */
   async hasOrganizationPermission(
     userId: string,
     organizationId: string,
-    permission: string,
+    permission: string | PermissionKey,
   ): Promise<boolean> {
     // Check if user is organization owner (always has all permissions)
     const organization = await this.findById(organizationId);
@@ -367,10 +368,34 @@ export class OrganizationsService extends BaseService<Organization> {
       return true;
     }
 
+    // Convert old permission format to PermissionKey if needed
+    // Support both old format (e.g., 'ORGANIZATION_MANAGE_MEMBERS') and new format (e.g., 'organization.update')
+    let permissionKey: PermissionKey = permission as PermissionKey;
+    if (typeof permission === 'string' && permission.includes('_')) {
+      // Old format: convert 'ORGANIZATION_MANAGE_MEMBERS' to 'organization.update'
+      if (
+        permission.includes('MANAGE_MEMBERS') ||
+        permission.includes('MANAGE_SETTINGS')
+      ) {
+        permissionKey = 'organization.update';
+      } else if (permission.includes('DELETE')) {
+        permissionKey = 'organization.delete';
+      } else if (permission.includes('VIEW_ANALYTICS')) {
+        permissionKey = 'organization.read';
+      } else if (permission.includes('INVITE_MEMBERS')) {
+        permissionKey = 'organization.update';
+      } else {
+        // Default: try to map to organization.update
+        permissionKey = 'organization.update';
+      }
+    }
+
     // Check if user has the specific permission through roles
-    return await this.permissionsService.hasPermission(
+    return await this.permissionsService.evaluate(
       userId,
-      BigInt(permission),
+      permissionKey,
+      'organization',
+      organizationId,
     );
   }
 

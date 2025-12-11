@@ -12,4 +12,20 @@ export class EffectivePermissionsDto {
   @IsOptional()
   @IsString()
   userId?: string;
+
+  @ApiPropertyOptional({
+    description: 'Type of scope (e.g., organization, team, project)',
+    example: 'organization',
+  })
+  @IsOptional()
+  @IsString()
+  scopeType?: string;
+
+  @ApiPropertyOptional({
+    description: 'ID of the scope resource',
+    example: '1234567890123456789',
+  })
+  @IsOptional()
+  @IsString()
+  scopeId?: string;
 }

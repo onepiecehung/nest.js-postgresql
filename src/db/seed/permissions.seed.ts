@@ -1,9 +1,41 @@
 import {
-  DEFAULT_ROLES,
-  PERMISSIONS,
-} from 'src/permissions/constants/permissions.constants';
+  ALL_PERMISSION_KEYS,
+  ARTICLE_CREATE,
+  ARTICLE_READ,
+  ARTICLE_UPDATE,
+  MEDIA_CREATE,
+  ORGANIZATION_READ,
+  ORGANIZATION_UPDATE,
+  REPORT_READ,
+  REPORT_UPDATE,
+  SEGMENT_CREATE,
+  SEGMENT_UPDATE,
+  SERIES_CREATE,
+  SERIES_UPDATE,
+  STICKER_CREATE,
+  STICKER_DELETE,
+  STICKER_READ,
+  STICKER_UPDATE,
+} from 'src/permissions/constants/permission-keys.constants';
+import { DEFAULT_ROLES } from 'src/permissions/constants/permissions.constants';
 import { Role } from 'src/permissions/entities/role.entity';
+import { PermissionKey } from 'src/permissions/types/permission-key.type';
 import { DataSource } from 'typeorm';
+
+// Helper to calculate bitmask from PermissionKeys
+// This mimics what PermissionRegistry does but works in seed context
+function calculateBitmask(keys: PermissionKey[]): bigint {
+  // PermissionKeys are registered sequentially starting from bit 0
+  // Use ALL_PERMISSION_KEYS to get the correct bit index
+  let bitmask = 0n;
+  for (const key of keys) {
+    const bitIndex = ALL_PERMISSION_KEYS.indexOf(key);
+    if (bitIndex >= 0) {
+      bitmask |= 1n << BigInt(bitIndex);
+    }
+  }
+  return bitmask;
+}
 
 /**
  * Seed script for creating default roles in the permissions system
@@ -21,12 +53,18 @@ export async function seedPermissions(dataSource: DataSource): Promise<void> {
     return;
   }
 
+  // Calculate permissions using PermissionKeys
+  const moderatorPerms = calculateModeratorPermissions();
+  const adminPerms = calculateAdminPermissions();
+  const uploaderPerms = calculateUploaderPermissions();
+
   // Create roles individually to trigger entity hooks (IDs, timestamps)
   const rolesToCreate: Array<Partial<Role>> = [
     {
       name: DEFAULT_ROLES.EVERYONE,
       description: 'Default role assigned to all users',
-      permissions: '0',
+      allowPermissions: '0',
+      denyPermissions: '0',
       position: 0,
       mentionable: false,
       managed: false,
@@ -34,7 +72,8 @@ export async function seedPermissions(dataSource: DataSource): Promise<void> {
     {
       name: DEFAULT_ROLES.MEMBER,
       description: 'Default role for server members',
-      permissions: '0',
+      allowPermissions: '0',
+      denyPermissions: '0',
       position: 1,
       mentionable: false,
       managed: false,
@@ -42,7 +81,8 @@ export async function seedPermissions(dataSource: DataSource): Promise<void> {
     {
       name: DEFAULT_ROLES.MODERATOR,
       description: 'Server moderators with moderation permissions',
-      permissions: calculateModeratorPermissions().toString(),
+      allowPermissions: moderatorPerms.toString(),
+      denyPermissions: '0',
       position: 2,
       mentionable: true,
       managed: false,
@@ -51,7 +91,8 @@ export async function seedPermissions(dataSource: DataSource): Promise<void> {
     {
       name: DEFAULT_ROLES.ADMIN,
       description: 'Server administrators with administrative permissions',
-      permissions: calculateAdminPermissions().toString(),
+      allowPermissions: adminPerms.toString(),
+      denyPermissions: '0',
       position: 3,
       mentionable: true,
       managed: false,
@@ -60,7 +101,8 @@ export async function seedPermissions(dataSource: DataSource): Promise<void> {
     {
       name: DEFAULT_ROLES.OWNER,
       description: 'Server owner with full permissions',
-      permissions: (~0n).toString(),
+      allowPermissions: (~0n).toString(), // All permissions
+      denyPermissions: '0',
       position: 4,
       mentionable: true,
       managed: false,
@@ -69,7 +111,8 @@ export async function seedPermissions(dataSource: DataSource): Promise<void> {
     {
       name: DEFAULT_ROLES.UPLOADER,
       description: 'Server uploaders with upload permissions',
-      permissions: calculateUploaderPermissions().toString(),
+      allowPermissions: uploaderPerms.toString(),
+      denyPermissions: '0',
       position: 5,
       mentionable: true,
       managed: false,
@@ -99,47 +142,55 @@ export async function seedPermissions(dataSource: DataSource): Promise<void> {
 }
 
 /**
- * Calculate permissions for moderator role
+ * Calculate permissions for moderator role using PermissionKeys
  * Moderators can read and moderate content, but cannot manage all articles
  */
 function calculateModeratorPermissions(): bigint {
-  return (
-    PERMISSIONS.ARTICLE_READ |
-    PERMISSIONS.ARTICLE_UPDATE |
-    PERMISSIONS.SERIES_UPDATE |
-    PERMISSIONS.MEDIA_UPLOAD |
-    PERMISSIONS.STICKER_READ |
-    PERMISSIONS.REPORT_READ |
-    PERMISSIONS.REPORT_MODERATE
-  );
+  const permissionKeys: PermissionKey[] = [
+    ARTICLE_READ,
+    ARTICLE_UPDATE,
+    SERIES_UPDATE,
+    MEDIA_CREATE,
+    STICKER_READ,
+    REPORT_READ,
+    REPORT_UPDATE,
+  ];
+  return calculateBitmask(permissionKeys);
 }
 
 /**
- * Calculate permissions for admin role
+ * Calculate permissions for admin role using PermissionKeys
  * Admins have most permissions but not full owner access
  */
 function calculateAdminPermissions(): bigint {
-  return (
-    calculateModeratorPermissions() |
-    PERMISSIONS.ARTICLE_CREATE |
-    PERMISSIONS.ARTICLE_MANAGE_ALL |
-    PERMISSIONS.SERIES_CREATE |
-    PERMISSIONS.SEGMENTS_CREATE |
-    PERMISSIONS.SEGMENTS_UPDATE |
-    PERMISSIONS.STICKER_CREATE |
-    PERMISSIONS.STICKER_UPDATE |
-    PERMISSIONS.STICKER_DELETE |
-    PERMISSIONS.ORGANIZATION_MANAGE_MEMBERS |
-    PERMISSIONS.ORGANIZATION_MANAGE_SETTINGS |
-    PERMISSIONS.ORGANIZATION_VIEW_ANALYTICS |
-    PERMISSIONS.ORGANIZATION_INVITE_MEMBERS
-  );
+  const permissionKeys: PermissionKey[] = [
+    // Moderator permissions
+    ARTICLE_READ,
+    ARTICLE_UPDATE,
+    SERIES_UPDATE,
+    MEDIA_CREATE,
+    STICKER_READ,
+    REPORT_READ,
+    REPORT_UPDATE,
+    // Admin additional permissions
+    ARTICLE_CREATE,
+    SERIES_CREATE,
+    SEGMENT_CREATE,
+    SEGMENT_UPDATE,
+    STICKER_CREATE,
+    STICKER_UPDATE,
+    STICKER_DELETE,
+    ORGANIZATION_UPDATE,
+    ORGANIZATION_READ,
+  ];
+  return calculateBitmask(permissionKeys);
 }
 
 /**
- * Calculate permissions for uploader role
- * Uploaders have most permissions but not full owner access
+ * Calculate permissions for uploader role using PermissionKeys
+ * Uploaders can create and update segments
  */
 function calculateUploaderPermissions(): bigint {
-  return PERMISSIONS.SEGMENTS_CREATE | PERMISSIONS.SEGMENTS_UPDATE;
+  const permissionKeys: PermissionKey[] = [SEGMENT_CREATE, SEGMENT_UPDATE];
+  return calculateBitmask(permissionKeys);
 }

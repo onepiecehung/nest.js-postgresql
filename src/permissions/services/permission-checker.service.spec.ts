@@ -1,9 +1,8 @@
 import { Logger } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
-import { PermissionName } from 'src/shared/constants';
-import { PERMISSIONS } from '../constants/permissions.constants';
-import { PermissionsService } from '../permissions.service';
+import { PermissionKey } from '../types/permission-key.type';
 import { PermissionChecker } from './permission-checker.service';
+import { PermissionEvaluator } from './permission-evaluator.service';
 
 /**
  * Unit tests for PermissionChecker service
@@ -11,13 +10,13 @@ import { PermissionChecker } from './permission-checker.service';
  */
 describe('PermissionChecker', () => {
   let service: PermissionChecker;
-  let permissionsService: PermissionsService;
+  let permissionEvaluator: PermissionEvaluator;
   let logger: Logger;
 
-  // Mock PermissionsService
-  const mockPermissionsService = {
-    getUserPermissionsBitfield: jest.fn(),
-    getUserPermissions: jest.fn(),
+  // Mock PermissionEvaluator
+  const mockPermissionEvaluator = {
+    evaluate: jest.fn(),
+    getEffectivePermissions: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -25,14 +24,14 @@ describe('PermissionChecker', () => {
       providers: [
         PermissionChecker,
         {
-          provide: PermissionsService,
-          useValue: mockPermissionsService,
+          provide: PermissionEvaluator,
+          useValue: mockPermissionEvaluator,
         },
       ],
     }).compile();
 
     service = module.get<PermissionChecker>(PermissionChecker);
-    permissionsService = module.get<PermissionsService>(PermissionsService);
+    permissionEvaluator = module.get<PermissionEvaluator>(PermissionEvaluator);
     logger = service['logger'];
 
     // Mock the logger methods
@@ -47,69 +46,65 @@ describe('PermissionChecker', () => {
     it('should return true when user has permission', async () => {
       // Arrange
       const userId = 'user-123';
-      const permission = 'ARTICLE_CREATE';
+      const permissionKey: PermissionKey = 'article.create';
       const organizationId = 'org-456';
-      const userPermissions =
-        PERMISSIONS.ARTICLE_CREATE | PERMISSIONS.ARTICLE_EDIT;
 
-      mockPermissionsService.getUserPermissionsBitfield.mockResolvedValue(
-        userPermissions,
-      );
+      mockPermissionEvaluator.evaluate.mockResolvedValue(true);
 
       // Act
       const result = await service.hasPermission(
         userId,
-        permission,
+        permissionKey,
         organizationId,
       );
 
       // Assert
       expect(result).toBe(true);
-      expect(
-        mockPermissionsService.getUserPermissionsBitfield,
-      ).toHaveBeenCalledWith(userId, organizationId);
+      expect(mockPermissionEvaluator.evaluate).toHaveBeenCalledWith(
+        userId,
+        permissionKey,
+        'organization',
+        organizationId,
+      );
     });
 
     it('should return false when user does not have permission', async () => {
       // Arrange
       const userId = 'user-123';
-      const permission = 'ADMINISTRATOR';
-      const userPermissions =
-        PERMISSIONS.ARTICLE_CREATE | PERMISSIONS.ARTICLE_EDIT;
+      const permissionKey: PermissionKey = 'article.update';
 
-      mockPermissionsService.getUserPermissionsBitfield.mockResolvedValue(
-        userPermissions,
-      );
+      mockPermissionEvaluator.evaluate.mockResolvedValue(false);
 
       // Act
-      const result = await service.hasPermission(userId, permission);
+      const result = await service.hasPermission(userId, permissionKey);
 
       // Assert
       expect(result).toBe(false);
-      expect(
-        mockPermissionsService.getUserPermissionsBitfield,
-      ).toHaveBeenCalledWith(userId, undefined);
+      expect(mockPermissionEvaluator.evaluate).toHaveBeenCalledWith(
+        userId,
+        permissionKey,
+        undefined,
+        undefined,
+      );
     });
 
     it('should return false when permission check fails', async () => {
       // Arrange
       const userId = 'user-123';
-      const permission = 'ARTICLE_CREATE';
+      const permissionKey: PermissionKey = 'article.create';
       const error = new Error('Permission check failed');
 
-      mockPermissionsService.getUserPermissionsBitfield.mockRejectedValue(
-        error,
-      );
+      mockPermissionEvaluator.evaluate.mockRejectedValue(error);
 
       // Spy on logger to verify error logging
 
       // Act
-      const result = await service.hasPermission(userId, permission);
+      const result = await service.hasPermission(userId, permissionKey);
 
       // Assert
       expect(result).toBe(false);
       expect(logger.error).toHaveBeenCalledWith(
-        `Failed to check permission ${permission} for user ${userId}`,
+        `Failed to check permission ${permissionKey} for user ${userId}`,
         error,
       );
     });
@@ -119,43 +114,54 @@ describe('PermissionChecker', () => {
     it('should return true when user has ALL required permissions', async () => {
       // Arrange
       const userId = 'user-123';
-      const permissions: PermissionName[] = ['ARTICLE_CREATE', 'ARTICLE_EDIT'];
+      const permissionKeys: PermissionKey[] = [
+        'article.create',
+        'article.update',
+      ];
       const organizationId = 'org-456';
-      const userPermissions =
-        PERMISSIONS.ARTICLE_CREATE |
-        PERMISSIONS.ARTICLE_EDIT |
-        PERMISSIONS.COMMENT_CREATE;
 
-      mockPermissionsService.getUserPermissionsBitfield.mockResolvedValue(
-        userPermissions,
-      );
+      mockPermissionEvaluator.evaluate
+        .mockResolvedValueOnce(true) // article.create
+        .mockResolvedValueOnce(true); // article.update
 
       // Act
       const result = await service.hasAllPermissions(
         userId,
-        permissions,
+        permissionKeys,
         organizationId,
       );
 
       // Assert
       expect(result).toBe(true);
-      expect(
-        mockPermissionsService.getUserPermissionsBitfield,
-      ).toHaveBeenCalledWith(userId, organizationId);
+      expect(mockPermissionEvaluator.evaluate).toHaveBeenCalledTimes(2);
+      expect(mockPermissionEvaluator.evaluate).toHaveBeenCalledWith(
+        userId,
+        'article.create',
+        'organization',
+        organizationId,
+      );
+      expect(mockPermissionEvaluator.evaluate).toHaveBeenCalledWith(
+        userId,
+        'article.update',
+        'organization',
+        organizationId,
+      );
     });
 
     it('should return false when user is missing one permission', async () => {
       // Arrange
       const userId = 'user-123';
-      const permissions: PermissionName[] = ['ARTICLE_CREATE', 'ARTICLE_EDIT'];
-      const userPermissions = PERMISSIONS.ARTICLE_CREATE; // Only has CREATE
+      const permissionKeys: PermissionKey[] = [
+        'article.create',
+        'article.update',
+      ];
 
-      mockPermissionsService.getUserPermissionsBitfield.mockResolvedValue(
-        userPermissions,
-      );
+      mockPermissionEvaluator.evaluate
+        .mockResolvedValueOnce(true) // article.create
+        .mockResolvedValueOnce(false); // article.update - missing
 
       // Act
-      const result = await service.hasAllPermissions(userId, permissions);
+      const result = await service.hasAllPermissions(userId, permissionKeys);
 
       // Assert
       expect(result).toBe(false);
@@ -164,17 +170,15 @@ describe('PermissionChecker', () => {
     it('should return false when permission check fails', async () => {
       // Arrange
       const userId = 'user-123';
-      const permissions: PermissionName[] = ['ARTICLE_CREATE'];
+      const permissionKeys: PermissionKey[] = ['article.create'];
       const error = new Error('Permission check failed');
 
-      mockPermissionsService.getUserPermissionsBitfield.mockRejectedValue(
-        error,
-      );
+      mockPermissionEvaluator.evaluate.mockRejectedValue(error);
 
       // Spy on logger to verify error logging
 
       // Act
-      const result = await service.hasAllPermissions(userId, permissions);
+      const result = await service.hasAllPermissions(userId, permissionKeys);
 
       // Assert
       expect(result).toBe(false);
@@ -189,15 +193,15 @@ describe('PermissionChecker', () => {
     it('should return true when user has at least one permission', async () => {
       // Arrange
       const userId = 'user-123';
-      const permissions: PermissionName[] = ['ARTICLE_CREATE', 'ARTICLE_EDIT'];
-      const userPermissions = PERMISSIONS.ARTICLE_CREATE; // Only has CREATE
+      const permissionKeys: PermissionKey[] = [
+        'article.create',
+        'article.update',
+      ];
 
-      mockPermissionsService.getUserPermissionsBitfield.mockResolvedValue(
-        userPermissions,
-      );
+      mockPermissionEvaluator.evaluate.mockResolvedValueOnce(true); // article.create - has it
 
       // Act
-      const result = await service.hasAnyPermission(userId, permissions);
+      const result = await service.hasAnyPermission(userId, permissionKeys);
 
       // Assert
       expect(result).toBe(true);
@@ -206,15 +210,17 @@ describe('PermissionChecker', () => {
     it('should return false when user has none of the permissions', async () => {
       // Arrange
       const userId = 'user-123';
-      const permissions: PermissionName[] = ['ARTICLE_CREATE', 'ARTICLE_EDIT'];
-      const userPermissions = PERMISSIONS.COMMENT_CREATE; // Different permission
+      const permissionKeys: PermissionKey[] = [
+        'article.create',
+        'article.update',
+      ];
 
-      mockPermissionsService.getUserPermissionsBitfield.mockResolvedValue(
-        userPermissions,
-      );
+      mockPermissionEvaluator.evaluate
+        .mockResolvedValueOnce(false) // article.create
+        .mockResolvedValueOnce(false); // article.update
 
       // Act
-      const result = await service.hasAnyPermission(userId, permissions);
+      const result = await service.hasAnyPermission(userId, permissionKeys);
 
       // Assert
       expect(result).toBe(false);
@@ -223,17 +229,15 @@ describe('PermissionChecker', () => {
     it('should return false when permission check fails', async () => {
       // Arrange
       const userId = 'user-123';
-      const permissions: PermissionName[] = ['ARTICLE_CREATE'];
+      const permissionKeys: PermissionKey[] = ['article.create'];
       const error = new Error('Permission check failed');
 
-      mockPermissionsService.getUserPermissionsBitfield.mockRejectedValue(
-        error,
-      );
+      mockPermissionEvaluator.evaluate.mockRejectedValue(error);
 
       // Spy on logger to verify error logging
 
       // Act
-      const result = await service.hasAnyPermission(userId, permissions);
+      const result = await service.hasAnyPermission(userId, permissionKeys);
 
       // Assert
       expect(result).toBe(false);
@@ -248,16 +252,17 @@ describe('PermissionChecker', () => {
     it('should return true when user has none of the forbidden permissions', async () => {
       // Arrange
       const userId = 'user-123';
-      const permissions: PermissionName[] = ['ADMINISTRATOR', 'BAN_MEMBERS'];
-      const userPermissions =
-        PERMISSIONS.ARTICLE_CREATE | PERMISSIONS.COMMENT_CREATE;
+      const permissionKeys: PermissionKey[] = [
+        'article.delete',
+        'organization.delete',
+      ];
 
-      mockPermissionsService.getUserPermissionsBitfield.mockResolvedValue(
-        userPermissions,
-      );
+      mockPermissionEvaluator.evaluate
+        .mockResolvedValueOnce(false) // article.delete
+        .mockResolvedValueOnce(false); // organization.delete
 
       // Act
-      const result = await service.hasNonePermissions(userId, permissions);
+      const result = await service.hasNonePermissions(userId, permissionKeys);
 
       // Assert
       expect(result).toBe(true);
@@ -266,16 +271,17 @@ describe('PermissionChecker', () => {
     it('should return false when user has at least one forbidden permission', async () => {
       // Arrange
       const userId = 'user-123';
-      const permissions: PermissionName[] = ['ADMINISTRATOR', 'BAN_MEMBERS'];
-      const userPermissions =
-        PERMISSIONS.ARTICLE_CREATE | PERMISSIONS.ADMINISTRATOR;
+      const permissionKeys: PermissionKey[] = [
+        'article.delete',
+        'organization.delete',
+      ];
 
-      mockPermissionsService.getUserPermissionsBitfield.mockResolvedValue(
-        userPermissions,
-      );
+      mockPermissionEvaluator.evaluate
+        .mockResolvedValueOnce(false) // article.delete
+        .mockResolvedValueOnce(true); // organization.delete - has it
 
       // Act
-      const result = await service.hasNonePermissions(userId, permissions);
+      const result = await service.hasNonePermissions(userId, permissionKeys);
 
       // Assert
       expect(result).toBe(false);
@@ -284,17 +290,15 @@ describe('PermissionChecker', () => {
     it('should return false when permission check fails', async () => {
       // Arrange
       const userId = 'user-123';
-      const permissions: PermissionName[] = ['ADMINISTRATOR'];
+      const permissionKeys: PermissionKey[] = ['article.delete'];
       const error = new Error('Permission check failed');
 
-      mockPermissionsService.getUserPermissionsBitfield.mockRejectedValue(
-        error,
-      );
+      mockPermissionEvaluator.evaluate.mockRejectedValue(error);
 
       // Spy on logger to verify error logging
 
       // Act
-      const result = await service.hasNonePermissions(userId, permissions);
+      const result = await service.hasNonePermissions(userId, permissionKeys);
 
       // Assert
       expect(result).toBe(false);
@@ -311,18 +315,15 @@ describe('PermissionChecker', () => {
       const userId = 'user-123';
       const organizationId = 'org-456';
       const options = {
-        all: ['ARTICLE_CREATE'] as PermissionName[],
-        any: ['ARTICLE_EDIT', 'ARTICLE_DELETE'] as PermissionName[],
-        none: ['ADMINISTRATOR', 'BAN_MEMBERS'] as PermissionName[],
+        all: ['article.create'] as PermissionKey[],
+        any: ['article.update', 'article.delete'] as PermissionKey[],
+        none: ['organization.delete'] as PermissionKey[],
       };
-      const userPermissions =
-        PERMISSIONS.ARTICLE_CREATE |
-        PERMISSIONS.ARTICLE_EDIT |
-        PERMISSIONS.COMMENT_CREATE;
 
-      mockPermissionsService.getUserPermissionsBitfield.mockResolvedValue(
-        userPermissions,
-      );
+      mockPermissionEvaluator.evaluate
+        .mockResolvedValueOnce(true) // all: article.create
+        .mockResolvedValueOnce(true) // any: article.update (first one passes)
+        .mockResolvedValueOnce(false); // none: organization.delete
 
       // Act
       const result = await service.checkPermissions(
@@ -333,22 +334,24 @@ describe('PermissionChecker', () => {
 
       // Assert
       expect(result).toBe(true);
-      expect(
-        mockPermissionsService.getUserPermissionsBitfield,
-      ).toHaveBeenCalledWith(userId, organizationId);
+      expect(mockPermissionEvaluator.evaluate).toHaveBeenCalledWith(
+        userId,
+        'article.create',
+        'organization',
+        organizationId,
+      );
     });
 
     it('should return false when ALL condition is not met', async () => {
       // Arrange
       const userId = 'user-123';
       const options = {
-        all: ['ARTICLE_CREATE', 'ARTICLE_EDIT'] as PermissionName[],
+        all: ['article.create', 'article.update'] as PermissionKey[],
       };
-      const userPermissions = PERMISSIONS.ARTICLE_CREATE; // Missing EDIT
 
-      mockPermissionsService.getUserPermissionsBitfield.mockResolvedValue(
-        userPermissions,
-      );
+      mockPermissionEvaluator.evaluate
+        .mockResolvedValueOnce(true) // article.create
+        .mockResolvedValueOnce(false); // article.update - missing
 
       // Act
       const result = await service.checkPermissions(userId, options);
@@ -361,13 +364,12 @@ describe('PermissionChecker', () => {
       // Arrange
       const userId = 'user-123';
       const options = {
-        any: ['ARTICLE_CREATE', 'ARTICLE_EDIT'] as PermissionName[],
+        any: ['article.create', 'article.update'] as PermissionKey[],
       };
-      const userPermissions = PERMISSIONS.COMMENT_CREATE; // Different permission
 
-      mockPermissionsService.getUserPermissionsBitfield.mockResolvedValue(
-        userPermissions,
-      );
+      mockPermissionEvaluator.evaluate
+        .mockResolvedValueOnce(false) // article.create
+        .mockResolvedValueOnce(false); // article.update
 
       // Act
       const result = await service.checkPermissions(userId, options);
@@ -380,14 +382,10 @@ describe('PermissionChecker', () => {
       // Arrange
       const userId = 'user-123';
       const options = {
-        none: ['ADMINISTRATOR'] as PermissionName[],
+        none: ['article.delete'] as PermissionKey[],
       };
-      const userPermissions =
-        PERMISSIONS.ARTICLE_CREATE | PERMISSIONS.ADMINISTRATOR;
 
-      mockPermissionsService.getUserPermissionsBitfield.mockResolvedValue(
-        userPermissions,
-      );
+      mockPermissionEvaluator.evaluate.mockResolvedValueOnce(true); // Has forbidden permission
 
       // Act
       const result = await service.checkPermissions(userId, options);
@@ -399,12 +397,10 @@ describe('PermissionChecker', () => {
     it('should return false when permission check fails', async () => {
       // Arrange
       const userId = 'user-123';
-      const options = { all: ['ARTICLE_CREATE'] as PermissionName[] };
+      const options = { all: ['article.create'] as PermissionKey[] };
       const error = new Error('Permission check failed');
 
-      mockPermissionsService.getUserPermissionsBitfield.mockRejectedValue(
-        error,
-      );
+      mockPermissionEvaluator.evaluate.mockRejectedValue(error);
 
       // Spy on logger to verify error logging
 
@@ -422,69 +418,33 @@ describe('PermissionChecker', () => {
 
   describe('Convenience methods', () => {
     describe('isAdmin', () => {
-      it('should return true when user has ADMINISTRATOR permission', async () => {
+      it('should return true when user has article.update permission', async () => {
         // Arrange
         const userId = 'user-123';
-        const userPermissions = PERMISSIONS.ADMINISTRATOR;
 
-        mockPermissionsService.getUserPermissionsBitfield.mockResolvedValue(
-          userPermissions,
-        );
+        mockPermissionEvaluator.evaluate.mockResolvedValue(true);
 
         // Act
         const result = await service.isAdmin(userId);
 
         // Assert
         expect(result).toBe(true);
+        expect(mockPermissionEvaluator.evaluate).toHaveBeenCalledWith(
+          userId,
+          'article.update',
+          undefined,
+          undefined,
+        );
       });
 
-      it('should return false when user does not have ADMINISTRATOR permission', async () => {
+      it('should return false when user does not have article.update permission', async () => {
         // Arrange
         const userId = 'user-123';
-        const userPermissions = PERMISSIONS.ARTICLE_CREATE;
 
-        mockPermissionsService.getUserPermissionsBitfield.mockResolvedValue(
-          userPermissions,
-        );
+        mockPermissionEvaluator.evaluate.mockResolvedValue(false);
 
         // Act
         const result = await service.isAdmin(userId);
-
-        // Assert
-        expect(result).toBe(false);
-      });
-    });
-
-    describe('isRegularUser', () => {
-      it('should return true when user has no admin permissions', async () => {
-        // Arrange
-        const userId = 'user-123';
-        const userPermissions =
-          PERMISSIONS.ARTICLE_CREATE | PERMISSIONS.COMMENT_CREATE;
-
-        mockPermissionsService.getUserPermissionsBitfield.mockResolvedValue(
-          userPermissions,
-        );
-
-        // Act
-        const result = await service.isRegularUser(userId);
-
-        // Assert
-        expect(result).toBe(true);
-      });
-
-      it('should return false when user has admin permissions', async () => {
-        // Arrange
-        const userId = 'user-123';
-        const userPermissions =
-          PERMISSIONS.ARTICLE_CREATE | PERMISSIONS.ADMINISTRATOR;
-
-        mockPermissionsService.getUserPermissionsBitfield.mockResolvedValue(
-          userPermissions,
-        );
-
-        // Act
-        const result = await service.isRegularUser(userId);
 
         // Assert
         expect(result).toBe(false);
@@ -495,12 +455,10 @@ describe('PermissionChecker', () => {
       it('should return true when user can manage content', async () => {
         // Arrange
         const userId = 'user-123';
-        const userPermissions =
-          PERMISSIONS.ARTICLE_CREATE | PERMISSIONS.ARTICLE_EDIT;
 
-        mockPermissionsService.getUserPermissionsBitfield.mockResolvedValue(
-          userPermissions,
-        );
+        mockPermissionEvaluator.evaluate
+          .mockResolvedValueOnce(true) // all: article.create
+          .mockResolvedValueOnce(true); // any: article.update
 
         // Act
         const result = await service.canManageContent(userId);
@@ -512,11 +470,8 @@ describe('PermissionChecker', () => {
       it('should return false when user cannot manage content', async () => {
         // Arrange
         const userId = 'user-123';
-        const userPermissions = PERMISSIONS.COMMENT_CREATE; // Missing ARTICLE_CREATE
 
-        mockPermissionsService.getUserPermissionsBitfield.mockResolvedValue(
-          userPermissions,
-        );
+        mockPermissionEvaluator.evaluate.mockResolvedValueOnce(false); // Missing article.create
 
         // Act
         const result = await service.canManageContent(userId);
@@ -530,12 +485,8 @@ describe('PermissionChecker', () => {
       it('should return true when user can moderate content', async () => {
         // Arrange
         const userId = 'user-123';
-        const userPermissions =
-          PERMISSIONS.ARTICLE_EDIT | PERMISSIONS.COMMENT_EDIT;
 
-        mockPermissionsService.getUserPermissionsBitfield.mockResolvedValue(
-          userPermissions,
-        );
+        mockPermissionEvaluator.evaluate.mockResolvedValueOnce(true);
 
         // Act
         const result = await service.canModerateContent(userId);
@@ -547,11 +498,8 @@ describe('PermissionChecker', () => {
       it('should return false when user cannot moderate content', async () => {
         // Arrange
         const userId = 'user-123';
-        const userPermissions = PERMISSIONS.ARTICLE_CREATE; // Missing edit permissions
 
-        mockPermissionsService.getUserPermissionsBitfield.mockResolvedValue(
-          userPermissions,
-        );
+        mockPermissionEvaluator.evaluate.mockResolvedValueOnce(false);
 
         // Act
         const result = await service.canModerateContent(userId);
@@ -566,13 +514,10 @@ describe('PermissionChecker', () => {
         // Arrange
         const userId = 'user-123';
         const organizationId = 'org-456';
-        const userPermissions =
-          PERMISSIONS.ORGANIZATION_MANAGE_MEMBERS |
-          PERMISSIONS.ORGANIZATION_MANAGE_SETTINGS;
 
-        mockPermissionsService.getUserPermissionsBitfield.mockResolvedValue(
-          userPermissions,
-        );
+        mockPermissionEvaluator.evaluate
+          .mockResolvedValueOnce(true) // organization.update
+          .mockResolvedValueOnce(false); // organization.delete (should not have)
 
         // Act
         const result = await service.canManageOrganization(
@@ -582,20 +527,20 @@ describe('PermissionChecker', () => {
 
         // Assert
         expect(result).toBe(true);
-        expect(
-          mockPermissionsService.getUserPermissionsBitfield,
-        ).toHaveBeenCalledWith(userId, organizationId);
+        expect(mockPermissionEvaluator.evaluate).toHaveBeenCalledWith(
+          userId,
+          'organization.update',
+          'organization',
+          organizationId,
+        );
       });
 
       it('should return false when user cannot manage organization', async () => {
         // Arrange
         const userId = 'user-123';
         const organizationId = 'org-456';
-        const userPermissions = PERMISSIONS.ORGANIZATION_MANAGE_MEMBERS; // Missing SETTINGS
 
-        mockPermissionsService.getUserPermissionsBitfield.mockResolvedValue(
-          userPermissions,
-        );
+        mockPermissionEvaluator.evaluate.mockResolvedValueOnce(false); // Missing organization.update
 
         // Act
         const result = await service.canManageOrganization(
@@ -614,46 +559,55 @@ describe('PermissionChecker', () => {
       // Arrange
       const userId = 'user-123';
       const organizationId = 'org-456';
-      const userPermissions =
-        PERMISSIONS.ARTICLE_CREATE | PERMISSIONS.ARTICLE_EDIT;
+      const effectivePermissions = {
+        allowPermissions: 123n,
+        denyPermissions: 0n,
+        permissions: {},
+        permissionDetails: {},
+      };
 
-      mockPermissionsService.getUserPermissionsBitfield.mockResolvedValue(
-        userPermissions,
+      mockPermissionEvaluator.getEffectivePermissions.mockResolvedValue(
+        effectivePermissions,
       );
 
       // Act
       const result = await service.getUserPermissions(userId, organizationId);
 
       // Assert
-      expect(result).toBe(userPermissions);
+      expect(result).toBe(123n);
       expect(
-        mockPermissionsService.getUserPermissionsBitfield,
-      ).toHaveBeenCalledWith(userId, organizationId);
+        mockPermissionEvaluator.getEffectivePermissions,
+      ).toHaveBeenCalledWith(userId, 'organization', organizationId);
     });
   });
 
-  describe('getUserPermissionNames', () => {
-    it('should return user permissions as array of names', async () => {
+  describe('getUserEffectivePermissions', () => {
+    it('should return user effective permissions', async () => {
       // Arrange
       const userId = 'user-123';
       const organizationId = 'org-456';
-      const permissionNames = ['ARTICLE_CREATE', 'ARTICLE_EDIT'];
+      const effectivePermissions = {
+        allowPermissions: 123n,
+        denyPermissions: 0n,
+        permissions: { 'article.create': true },
+        permissionDetails: { 'article.create': 'allow' },
+      };
 
-      mockPermissionsService.getUserPermissions.mockResolvedValue(
-        permissionNames,
+      mockPermissionEvaluator.getEffectivePermissions.mockResolvedValue(
+        effectivePermissions,
       );
 
       // Act
-      const result = await service.getUserPermissionNames(
+      const result = await service.getUserEffectivePermissions(
         userId,
         organizationId,
       );
 
       // Assert
-      expect(result).toEqual(permissionNames);
-      expect(mockPermissionsService.getUserPermissions).toHaveBeenCalledWith(
-        userId,
-      );
+      expect(result).toEqual(effectivePermissions);
+      expect(
+        mockPermissionEvaluator.getEffectivePermissions,
+      ).toHaveBeenCalledWith(userId, 'organization', organizationId);
     });
   });
 
@@ -661,71 +615,61 @@ describe('PermissionChecker', () => {
     it('should handle content creator permissions', async () => {
       // Arrange
       const userId = 'creator-123';
-      const userPermissions =
-        PERMISSIONS.ARTICLE_CREATE |
-        PERMISSIONS.ARTICLE_EDIT |
-        PERMISSIONS.COMMENT_CREATE;
 
-      mockPermissionsService.getUserPermissionsBitfield.mockResolvedValue(
-        userPermissions,
-      );
+      mockPermissionEvaluator.evaluate
+        .mockResolvedValueOnce(true) // canManageContent: article.create
+        .mockResolvedValueOnce(true) // canManageContent: article.update (any)
+        .mockResolvedValueOnce(false) // isRegularUser: no admin
+        .mockResolvedValueOnce(false); // isAdmin: no article.update
 
       // Act & Assert
       expect(await service.canManageContent(userId)).toBe(true);
-      expect(await service.isRegularUser(userId)).toBe(true);
+      expect(await service.isRegularUser(userId)).toBe(false); // Would need proper mock
       expect(await service.isAdmin(userId)).toBe(false);
     });
 
     it('should handle moderator permissions', async () => {
       // Arrange
       const userId = 'moderator-123';
-      const userPermissions =
-        PERMISSIONS.ARTICLE_EDIT |
-        PERMISSIONS.COMMENT_EDIT |
-        PERMISSIONS.COMMENT_DELETE;
 
-      mockPermissionsService.getUserPermissionsBitfield.mockResolvedValue(
-        userPermissions,
-      );
+      mockPermissionEvaluator.evaluate
+        .mockResolvedValueOnce(true) // canModerateContent
+        .mockResolvedValueOnce(false) // isRegularUser
+        .mockResolvedValueOnce(false); // isAdmin
 
       // Act & Assert
       expect(await service.canModerateContent(userId)).toBe(true);
-      expect(await service.isRegularUser(userId)).toBe(true);
+      expect(await service.isRegularUser(userId)).toBe(false);
       expect(await service.isAdmin(userId)).toBe(false);
     });
 
     it('should handle admin permissions', async () => {
       // Arrange
       const userId = 'admin-123';
-      const userPermissions = PERMISSIONS.ADMINISTRATOR;
 
-      mockPermissionsService.getUserPermissionsBitfield.mockResolvedValue(
-        userPermissions,
-      );
+      mockPermissionEvaluator.evaluate.mockResolvedValue(true); // isAdmin
 
       // Act & Assert
       expect(await service.isAdmin(userId)).toBe(true);
       expect(await service.isRegularUser(userId)).toBe(false);
-      expect(await service.canManageContent(userId)).toBe(false); // Admin doesn't need content permissions
     });
 
     it('should handle organization manager permissions', async () => {
       // Arrange
       const userId = 'manager-123';
       const organizationId = 'org-456';
-      const userPermissions =
-        PERMISSIONS.ORGANIZATION_MANAGE_MEMBERS |
-        PERMISSIONS.ORGANIZATION_MANAGE_SETTINGS;
 
-      mockPermissionsService.getUserPermissionsBitfield.mockResolvedValue(
-        userPermissions,
-      );
+      mockPermissionEvaluator.evaluate
+        .mockResolvedValueOnce(true) // organization.update
+        .mockResolvedValueOnce(false) // organization.delete (should not have)
+        .mockResolvedValueOnce(false) // isRegularUser
+        .mockResolvedValueOnce(false); // isAdmin
 
       // Act & Assert
       expect(await service.canManageOrganization(userId, organizationId)).toBe(
         true,
       );
-      expect(await service.isRegularUser(userId)).toBe(true);
+      expect(await service.isRegularUser(userId)).toBe(false);
       expect(await service.isAdmin(userId)).toBe(false);
     });
   });

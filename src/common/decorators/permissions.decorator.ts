@@ -1,23 +1,30 @@
 import { SetMetadata } from '@nestjs/common';
-import { PermissionName } from 'src/shared/constants';
 import { ContextConfig } from 'src/permissions/interfaces/context-resolver.interface';
+import { PermissionKey } from 'src/permissions/types/permission-key.type';
 
 /**
  * Permission check options for complex logic
+ * Uses PermissionKeys format
  */
 export interface PermissionCheckOptions {
-  /** Must have ALL of these permissions (AND operation) */
-  all?: PermissionName[];
-  /** Must have ANY of these permissions (OR operation) */
-  any?: PermissionName[];
-  /** Must have NONE of these permissions (NOT operation) */
-  none?: PermissionName[];
-  /** Organization context (optional, deprecated - use contexts instead) */
-  organizationId?: string;
-  /** Context configurations for resource-specific permission checks */
+  /** Must have ALL of these PermissionKeys (AND operation) */
+  all?: PermissionKey[];
+  /** Must have ANY of these PermissionKeys (OR operation) */
+  any?: PermissionKey[];
+  /** Must have NONE of these PermissionKeys (NOT operation) */
+  none?: PermissionKey[];
+  /** Scope type (e.g., 'organization', 'team', 'project') */
+  scopeType?: string;
+  /** Scope ID */
+  scopeId?: string;
+  /** Auto-detect scope from request (default: false) */
+  autoDetectScope?: boolean;
+  /** Context configurations for resource-specific permission checks (legacy support) */
   contexts?: ContextConfig[];
-  /** Auto-detect context from request (default: false) */
+  /** Auto-detect context from request (default: false) (legacy support) */
   autoDetectContext?: boolean;
+  /** @deprecated Use scopeType='organization' and scopeId instead */
+  organizationId?: string;
 }
 
 /**
@@ -27,23 +34,24 @@ export const REQUIRE_PERMISSIONS_METADATA = 'requirePermissions';
 
 /**
  * Decorator to require specific permissions for route access
- * Supports complex AND/OR/NOT logic
+ * Supports complex AND/OR/NOT logic using PermissionKeys
  *
  * @example
  * // Simple permission check
- * @RequirePermissions({ all: ['ARTICLE_CREATE'] })
+ * @RequirePermissions({ all: ['article.create'] })
  *
- * // Complex logic: must have ARTICLE_CREATE AND (ARTICLE_EDIT_OWN OR ARTICLE_EDIT_ALL) AND NOT ADMINISTRATOR
+ * // Complex logic
  * @RequirePermissions({
- *   all: ['ARTICLE_CREATE'],
- *   any: ['ARTICLE_EDIT_OWN', 'ARTICLE_EDIT_ALL'],
- *   none: ['ADMINISTRATOR']
+ *   all: ['article.create'],
+ *   any: ['article.update', 'article.delete'],
+ *   none: ['article.delete']
  * })
  *
- * // With organization context
+ * // With scope context
  * @RequirePermissions({
- *   all: ['ORGANIZATION_MANAGE_MEMBERS'],
- *   organizationId: 'org-123'
+ *   all: ['organization.update'],
+ *   scopeType: 'organization',
+ *   autoDetectScope: true
  * })
  */
 export const Permissions = (options: PermissionCheckOptions) =>

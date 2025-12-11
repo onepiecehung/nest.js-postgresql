@@ -202,9 +202,9 @@ export class SegmentsController {
 
   /**
    * Update a segment
-   * Requires authentication and SEGMENTS_UPDATE permission
+   * Requires authentication and segment.update permission
    * Automatically checks both general permission (from roles) and segment-specific permission
-   * using context resolver pattern
+   * using scope-based permission evaluation
    * @param id Segment ID (Snowflake ID)
    * @param updateSegmentDto Segment update data
    * @returns Updated segment entity
@@ -212,14 +212,9 @@ export class SegmentsController {
   @Patch(':id')
   @Auth()
   @RequirePermissions({
-    all: ['SEGMENTS_UPDATE'],
-    contexts: [
-      {
-        type: 'segment',
-        paramName: 'id', // Extract segmentId from :id param
-        required: true,
-      },
-    ],
+    all: ['segment.update'],
+    scopeType: 'segment',
+    autoDetectScope: true,
   })
   async update(
     @Param('id', SnowflakeIdPipe) id: string,
@@ -227,8 +222,8 @@ export class SegmentsController {
   ) {
     // Permission check is handled automatically by PermissionsGuard
     // It checks:
-    // 1. General SEGMENTS_UPDATE permission (from roles), OR
-    // 2. SEGMENTS_UPDATE permission for this specific segment (from UserPermission)
+    // 1. General segment.update permission (from roles), OR
+    // 2. segment.update permission for this specific segment (from ScopePermission)
 
     // Note: seriesId in updateSegmentDto will be ignored by service
     // as it's not allowed to change the parent series

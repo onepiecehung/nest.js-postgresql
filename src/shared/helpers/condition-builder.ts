@@ -7,6 +7,7 @@ import {
   LessThanOrEqual,
   Like,
   MoreThanOrEqual,
+  Raw,
 } from 'typeorm';
 
 export class ConditionBuilder {
@@ -91,12 +92,33 @@ export class ConditionBuilder {
     const searchFields = this.getSearchFields(defaultField, data.fields);
 
     if (searchFields.length > 1) {
-      conditions = searchFields.map((field) => ({
-        ...conditions,
-        [field]: searchOperator(`%${data.query}%`),
-      }));
+      conditions = searchFields.map((field) => {
+        const fieldName = field.endsWith(':jsonb')
+          ? field.replace(':jsonb', '')
+          : field;
+        const fieldCondition = field.endsWith(':jsonb')
+          ? Raw((alias) => `(${alias})::text ILIKE :like`, {
+              like: `%${data.query}%`,
+            })
+          : searchOperator(`%${data.query}%`);
+
+        return {
+          ...conditions,
+          [fieldName]: fieldCondition,
+        };
+      });
     } else {
-      conditions[searchFields[0]] = searchOperator(`%${data.query}%`);
+      const field = searchFields[0];
+      const fieldName = field.endsWith(':jsonb')
+        ? field.replace(':jsonb', '')
+        : field;
+      const fieldCondition = field.endsWith(':jsonb')
+        ? Raw((alias) => `(${alias})::text ILIKE :like`, {
+            like: `%${data.query}%`,
+          })
+        : searchOperator(`%${data.query}%`);
+
+      conditions[fieldName] = fieldCondition;
     }
     return conditions;
   }

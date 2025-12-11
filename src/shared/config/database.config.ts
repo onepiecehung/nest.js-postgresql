@@ -19,7 +19,7 @@ export const databaseConfig = () => ({
   password: process.env.DATABASE_PASSWORD,
   database: process.env.DATABASE_NAME,
   entities: ['dist/**/*.entity{.ts,.js}'],
-  synchronize: !!process.env.DATABASE_SYNCHRONIZE,
+  synchronize: true,
   bigNumberStrings: false,
   supportBigNumbers: true,
   autoLoadEntities: true,

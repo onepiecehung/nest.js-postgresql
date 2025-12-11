@@ -1,11 +1,11 @@
 import { HttpException, HttpStatus } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { Organization } from 'src/organizations/entities/organization.entity';
 import { Repository } from 'typeorm';
-import { DEFAULT_ROLES, PERMISSIONS } from './constants/permissions.constants';
+import { DEFAULT_ROLES } from './constants/permissions.constants';
 import { AssignRoleDto } from './dto/assign-role.dto';
 import { CreateRoleDto } from './dto/create-role.dto';
-import { EffectivePermissionsDto } from './dto/effective-permissions.dto';
 import { UpdateRoleDto } from './dto/update-role.dto';
 import { Role } from './entities/role.entity';
 import { UserRole } from './entities/user-role.entity';
@@ -20,7 +20,8 @@ function createMockRole(overrides: Partial<Role> = {}): Role {
     id: overrides.id || 'role-id',
     uuid: overrides.uuid || 'role-uuid',
     name: overrides.name || 'test-role',
-    permissions: overrides.permissions || '0',
+    allowPermissions: overrides.allowPermissions || '0',
+    denyPermissions: overrides.denyPermissions || '0',
     position: overrides.position || 0,
     color: overrides.color || '#000000',
     mentionable: overrides.mentionable || false,
@@ -33,9 +34,14 @@ function createMockRole(overrides: Partial<Role> = {}): Role {
     deletedAt: overrides.deletedAt || null,
     version: overrides.version || 1,
     userRoles: overrides.userRoles || [],
-    getPermissionsAsBigInt: jest.fn(() => BigInt(overrides.permissions || '0')),
-    setPermissionsFromBigInt: jest.fn(),
-    hasPermission: jest.fn(),
+    getAllowPermissionsAsBigInt: jest.fn(() =>
+      BigInt(overrides.allowPermissions || '0'),
+    ),
+    setAllowPermissionsFromBigInt: jest.fn(),
+    getDenyPermissionsAsBigInt: jest.fn(() =>
+      BigInt(overrides.denyPermissions || '0'),
+    ),
+    setDenyPermissionsFromBigInt: jest.fn(),
     isEveryoneRole: jest.fn(() => false),
     isAdmin: jest.fn(() => false),
     toJSON: jest.fn(),
@@ -133,7 +139,7 @@ describe('PermissionsService', () => {
       const createDto: CreateRoleDto = {
         name: 'test-role',
         description: 'A test role',
-        permissions: PERMISSIONS.ARTICLE_CREATE.toString(),
+        permissions: '123',
         position: 1,
         color: '#ff0000',
         mentionable: true,
@@ -145,7 +151,8 @@ describe('PermissionsService', () => {
       const expectedRole = createMockRole({
         name: createDto.name,
         description: createDto.description,
-        permissions: createDto.permissions,
+        allowPermissions: createDto.permissions,
+        denyPermissions: '0',
         position: createDto.position,
         color: createDto.color,
         mentionable: createDto.mentionable,
@@ -164,7 +171,8 @@ describe('PermissionsService', () => {
       expect(service.create).toHaveBeenCalledWith({
         name: createDto.name,
         description: createDto.description,
-        permissions: createDto.permissions,
+        allowPermissions: createDto.permissions,
+        denyPermissions: '0',
         position: createDto.position,
         color: createDto.color,
         mentionable: createDto.mentionable,
@@ -182,7 +190,8 @@ describe('PermissionsService', () => {
 
       const expectedRole = createMockRole({
         name: createDto.name,
-        permissions: '0',
+        allowPermissions: '0',
+        denyPermissions: '0',
         position: 0,
         mentionable: false,
         managed: false,
@@ -198,7 +207,8 @@ describe('PermissionsService', () => {
       expect(service.create).toHaveBeenCalledWith({
         name: createDto.name,
         description: undefined,
-        permissions: '0',
+        allowPermissions: '0',
+        denyPermissions: '0',
         position: 0,
         color: undefined,
         mentionable: false,
@@ -229,7 +239,7 @@ describe('PermissionsService', () => {
       const updateDto: UpdateRoleDto = {
         name: 'updated-role',
         description: 'Updated description',
-        permissions: PERMISSIONS.ARTICLE_EDIT.toString(),
+        permissions: '456',
       };
 
       const existingRole = createMockRole({ id: roleId, name: 'old-name' });
@@ -247,7 +257,8 @@ describe('PermissionsService', () => {
       expect(service.update).toHaveBeenCalledWith(roleId, {
         name: updateDto.name,
         description: updateDto.description,
-        permissions: updateDto.permissions,
+        allowPermissions: updateDto.permissions,
+        denyPermissions: '0',
       });
     });
 
@@ -486,187 +497,17 @@ describe('PermissionsService', () => {
     });
   });
 
-  describe('computeEffectivePermissions', () => {
-    beforeEach(() => {
-      // Mock default everyone role
-      jest.spyOn(service, 'findRoleByName').mockResolvedValue({
-        id: 'everyone-role-id',
-        name: DEFAULT_ROLES.EVERYONE,
-        permissions: '0',
-        position: 0,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        getPermissionsAsBigInt: () => 0n,
-      } as Role);
-    });
-
-    it('should throw HttpException when userId is not provided', async () => {
-      // Arrange
-      const dto: EffectivePermissionsDto = {};
-
-      // Act & Assert
-      await expect(service.computeEffectivePermissions(dto)).rejects.toThrow(
-        HttpException,
-      );
-    });
-
-    it('should throw HttpException when permission calculation fails', async () => {
-      // Arrange
-      const dto: EffectivePermissionsDto = { userId: 'user-123' };
-      const error = new Error('Database connection failed');
-
-      jest.spyOn(service, 'getUserRoles').mockRejectedValue(error);
-
-      // Act & Assert
-      await expect(service.computeEffectivePermissions(dto)).rejects.toThrow(
-        HttpException,
-      );
-      await expect(service.computeEffectivePermissions(dto)).rejects.toThrow(
-        Error,
-      );
-    });
-
-    it('Scenario 1: User with ADMINISTRATOR permission should return ALL_PERMISSIONS', async () => {
-      // Arrange
-      const userId = 'user-123';
-      const adminRole = createMockRole({
-        id: 'admin-role-id',
-        name: 'admin',
-        permissions: PERMISSIONS.ADMINISTRATOR.toString(),
-        position: 3,
-        isAdmin: jest.fn(() => true),
-      });
-
-      jest.spyOn(service, 'getUserRoles').mockResolvedValue([
-        {
-          id: 'user-role-1',
-          userId,
-          roleId: adminRole.id,
-          role: adminRole,
-          createdAt: new Date(),
-        } as UserRole,
-      ]);
-
-      jest.spyOn(roleRepository, 'find').mockResolvedValue([adminRole]);
-
-      // Act
-      const result = await service.computeEffectivePermissions({ userId });
-
-      // Assert
-      expect(result.mask).toBe(~0n); // All permissions
-      expect(result.map.ADMINISTRATOR).toBe(true);
-    });
-
-    it('Scenario 2: Multiple role permissions merged with OR operation', async () => {
-      // Arrange
-      const userId = 'user-123';
-
-      const role1 = createMockRole({
-        id: 'role-1',
-        name: 'role1',
-        permissions: PERMISSIONS.VIEW_CHANNEL.toString(),
-        position: 1,
-      });
-
-      const role2 = createMockRole({
-        id: 'role-2',
-        name: 'role2',
-        permissions: PERMISSIONS.SEND_MESSAGES.toString(),
-        position: 2,
-      });
-
-      const role3 = createMockRole({
-        id: 'role-3',
-        name: 'role3',
-        permissions: PERMISSIONS.EMBED_LINKS.toString(),
-        position: 3,
-      });
-
-      jest.spyOn(service, 'getUserRoles').mockResolvedValue([
-        {
-          id: 'user-role-1',
-          userId,
-          roleId: role1.id,
-          role: role1,
-          createdAt: new Date(),
-        },
-        {
-          id: 'user-role-2',
-          userId,
-          roleId: role2.id,
-          role: role2,
-          createdAt: new Date(),
-        },
-        {
-          id: 'user-role-3',
-          userId,
-          roleId: role3.id,
-          role: role3,
-          createdAt: new Date(),
-        },
-      ] as UserRole[]);
-
-      jest
-        .spyOn(roleRepository, 'find')
-        .mockResolvedValue([role1, role2, role3]);
-
-      // Act
-      const result = await service.computeEffectivePermissions({ userId });
-
-      // Assert
-      expect(result.map.VIEW_CHANNEL).toBe(true);
-      expect(result.map.SEND_MESSAGES).toBe(true);
-      expect(result.map.EMBED_LINKS).toBe(true);
-      expect(result.map.ADMINISTRATOR).toBe(false); // Not in any role
-
-      // Verify the mask contains all three permissions
-      const expectedMask =
-        PERMISSIONS.VIEW_CHANNEL |
-        PERMISSIONS.SEND_MESSAGES |
-        PERMISSIONS.EMBED_LINKS;
-      expect(result.mask).toBe(expectedMask);
-    });
-  });
-
-  describe('hasPermission', () => {
-    it('should return true when user has permission', async () => {
-      // Arrange
-      const userId = 'user-123';
-      const permission = PERMISSIONS.SEND_MESSAGES;
-
-      jest.spyOn(service, 'computeEffectivePermissions').mockResolvedValue({
-        mask: PERMISSIONS.SEND_MESSAGES,
-        map: { SEND_MESSAGES: true },
-      });
-
-      // Act
-      const result = await service.hasPermission(userId, permission);
-
-      // Assert
-      expect(result).toBe(true);
-    });
-
-    it('should return false when user does not have permission', async () => {
-      // Arrange
-      const userId = 'user-123';
-      const permission = PERMISSIONS.ADMINISTRATOR;
-
-      jest.spyOn(service, 'computeEffectivePermissions').mockResolvedValue({
-        mask: PERMISSIONS.SEND_MESSAGES,
-        map: { SEND_MESSAGES: true, ADMINISTRATOR: false },
-      });
-
-      // Act
-      const result = await service.hasPermission(userId, permission);
-
-      // Assert
-      expect(result).toBe(false);
-    });
-  });
+  // Note: computeEffectivePermissions and hasPermission(bigint) methods removed
+  // Use getUserEffectivePermissions() and evaluate() methods instead
 
   describe('createDefaultRoles', () => {
     it('should create default roles with correct permissions', async () => {
       // Arrange
+      const mockOrganization = {
+        id: 'org-123',
+        slug: 'test-org',
+      } as Organization;
+
       const mockRoles: Role[] = [];
       jest.spyOn(service, 'create').mockImplementation(async (data) => {
         const role = {
@@ -679,18 +520,28 @@ describe('PermissionsService', () => {
       });
 
       // Act
-      const result = await service.createDefaultRoles();
+      const result = await service.createDefaultRoles(mockOrganization);
 
       // Assert
       expect(result).toHaveLength(5);
-      expect(result[0].name).toBe(DEFAULT_ROLES.EVERYONE);
-      expect(result[1].name).toBe(DEFAULT_ROLES.MEMBER);
-      expect(result[2].name).toBe(DEFAULT_ROLES.MODERATOR);
-      expect(result[3].name).toBe(DEFAULT_ROLES.ADMIN);
-      expect(result[4].name).toBe(DEFAULT_ROLES.OWNER);
+      expect(result[0].name).toBe(
+        `${mockOrganization.slug}-${DEFAULT_ROLES.EVERYONE}`,
+      );
+      expect(result[1].name).toBe(
+        `${mockOrganization.slug}-${DEFAULT_ROLES.MEMBER}`,
+      );
+      expect(result[2].name).toBe(
+        `${mockOrganization.slug}-${DEFAULT_ROLES.MODERATOR}`,
+      );
+      expect(result[3].name).toBe(
+        `${mockOrganization.slug}-${DEFAULT_ROLES.ADMIN}`,
+      );
+      expect(result[4].name).toBe(
+        `${mockOrganization.slug}-${DEFAULT_ROLES.OWNER}`,
+      );
 
       // Check that owner has all permissions
-      expect(BigInt(result[4].permissions)).toBe(~0n); // All permissions
+      expect(BigInt(result[4].allowPermissions || '0')).toBe(~0n); // All permissions
     });
   });
 });

@@ -1,12 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import {
-  IsDateString,
-  IsEnum,
-  IsOptional,
-  IsString,
-  ValidateIf,
-} from 'class-validator';
-import { PermissionName } from 'src/shared/constants';
+import { IsDateString, IsOptional, IsString } from 'class-validator';
+import { PermissionKey } from 'src/permissions/types/permission-key.type';
 
 /**
  * DTO for granting a permission to a user for a specific segment
@@ -27,12 +21,11 @@ export class GrantSegmentPermissionDto {
   segmentId: string;
 
   @ApiProperty({
-    description: 'Permission name to grant',
-    example: 'SEGMENTS_UPDATE',
-    enum: ['SEGMENTS_UPDATE', 'SEGMENTS_CREATE'] as PermissionName[],
+    description: 'PermissionKey to grant',
+    example: 'segment.update',
   })
-  @IsEnum(['SEGMENTS_UPDATE', 'SEGMENTS_CREATE'] as any)
-  permission: 'SEGMENTS_UPDATE' | 'SEGMENTS_CREATE';
+  @IsString()
+  permission: PermissionKey;
 
   @ApiPropertyOptional({
     description: 'Reason for granting this permission (for audit purposes)',

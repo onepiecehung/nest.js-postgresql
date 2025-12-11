@@ -13,10 +13,8 @@ import {
   REQUIRE_PERMISSIONS_METADATA,
 } from 'src/common/decorators/permissions.decorator';
 import { AuthPayload } from 'src/common/interface';
-import { PermissionName } from 'src/shared/constants';
-import { PermissionsService } from 'src/permissions/permissions.service';
 import { ContextResolverService } from 'src/permissions/services/context-resolver.service';
-import { UserPermissionService } from 'src/permissions/services/user-permission.service';
+import { PermissionEvaluator } from 'src/permissions/services/permission-evaluator.service';
 import { USER_CONSTANTS, UserRole } from 'src/shared/constants';
 
 /**
@@ -41,9 +39,8 @@ export class PermissionsGuard implements CanActivate {
 
   constructor(
     private readonly reflector: Reflector,
-    private readonly userPermissionService: UserPermissionService,
-    private readonly permissionsService: PermissionsService,
     private readonly contextResolverService: ContextResolverService,
+    private readonly permissionEvaluator: PermissionEvaluator,
   ) {}
 
   /**
@@ -53,71 +50,6 @@ export class PermissionsGuard implements CanActivate {
    */
   private isAdminUser(user: AuthPayload): boolean {
     return user.role ? this.ADMIN_ROLES.includes(user.role) : false;
-  }
-
-  /**
-   * Extract organizationId from request params, body, or query
-   * @param request - Express request object
-   * @returns organizationId if found, undefined otherwise
-   */
-  private extractOrganizationIdFromRequest(
-    request: Request,
-  ): string | undefined {
-    // Priority order: URL params > request body > query params
-
-    // 1. Check URL parameters first (most common case)
-    const params = request.params as Record<string, string>;
-    if (params.organizationId) {
-      return params.organizationId;
-    }
-
-    // Check if URL path suggests organization context
-    if (params.id && this.isOrganizationContext(request.url)) {
-      return params.id;
-    }
-
-    // 2. Check request body for organization context
-    const body = request.body as Record<string, unknown>;
-    if (body && typeof body === 'object') {
-      // Direct organizationId field
-      if (this.isValidString(body.organizationId)) {
-        return body.organizationId;
-      }
-
-      // Nested organization object
-      if (body.organization && typeof body.organization === 'object') {
-        const org = body.organization as Record<string, unknown>;
-        if (this.isValidString(org.id)) {
-          return org.id;
-        }
-      }
-    }
-
-    // 3. Check query parameters (least common)
-    const query = request.query as Record<string, string>;
-    if (this.isValidString(query.organizationId)) {
-      return query.organizationId;
-    }
-
-    return undefined;
-  }
-
-  /**
-   * Check if URL path suggests organization context
-   * @param url - Request URL
-   * @returns true if URL suggests organization context
-   */
-  private isOrganizationContext(url: string): boolean {
-    return url.includes('/organizations/') || url.includes('/org/');
-  }
-
-  /**
-   * Validate if value is a non-empty string
-   * @param value - Value to validate
-   * @returns true if value is a valid non-empty string
-   */
-  private isValidString(value: unknown): value is string {
-    return typeof value === 'string' && value.trim().length > 0;
   }
 
   /**
@@ -187,39 +119,6 @@ export class PermissionsGuard implements CanActivate {
       userObj.uid.trim().length > 0 &&
       userObj.ssid.trim().length > 0
     );
-  }
-
-  /**
-   * Get all required permissions from options (all + any)
-   * @param options - Permission check options
-   * @returns Array of all required permission names
-   */
-  private getAllRequiredPermissions(
-    options: PermissionCheckOptions,
-  ): PermissionName[] {
-    const permissions: PermissionName[] = [];
-    if (options.all) {
-      permissions.push(...options.all);
-    }
-    if (options.any) {
-      permissions.push(...options.any);
-    }
-    return permissions;
-  }
-
-  /**
-   * Get required permissions for a specific context type
-   * @param options - Permission check options
-   * @param contextType - Context type to get permissions for
-   * @returns Array of permission names required for this context
-   */
-  private getRequiredPermissionsForContext(
-    options: PermissionCheckOptions,
-    contextType: string,
-  ): PermissionName[] {
-    // For now, return all required permissions
-    // In the future, we can add context-specific permission mapping
-    return this.getAllRequiredPermissions(options);
   }
 
   /**
@@ -294,217 +193,206 @@ export class PermissionsGuard implements CanActivate {
     }
 
     try {
-      // 1. Check general permissions first (without context)
-      const hasGeneralPermissions =
-        await this.userPermissionService.checkPermissions(user.uid, {
-          all: permissionOptions.all,
-          any: permissionOptions.any,
-          none: permissionOptions.none,
-        });
+      // Get permission options from direct all/any/none fields
+      const permissionKeys = {
+        all: permissionOptions.all,
+        any: permissionOptions.any,
+        none: permissionOptions.none,
+      };
 
-      // If general permissions pass and no context required, allow access
+      // If no permissions specified, allow access
       if (
-        hasGeneralPermissions &&
-        !permissionOptions.contexts &&
-        !permissionOptions.autoDetectContext
+        !permissionKeys.all?.length &&
+        !permissionKeys.any?.length &&
+        !permissionKeys.none?.length
       ) {
-        // Backward compatibility: check organizationId if provided
-        let organizationId = permissionOptions.organizationId;
-        if (!organizationId) {
-          organizationId = this.extractOrganizationIdFromRequest(request);
-        }
-
-        if (organizationId) {
-          // Re-check with organization context
-          const hasOrgPermissions =
-            await this.userPermissionService.checkPermissions(
-              user.uid,
-              {
-                all: permissionOptions.all,
-                any: permissionOptions.any,
-                none: permissionOptions.none,
-              },
-              organizationId,
-            );
-
-          if (!hasOrgPermissions) {
-            throw new ForbiddenException({
-              messageKey: 'auth.FORBIDDEN',
-              details: {
-                userId: user.uid,
-                requiredPermissions: permissionOptions,
-                message: 'Insufficient permissions for this organization',
-              },
-            });
-          }
-        }
-
-        this.logger.debug('Permission check passed (general)', {
-          userId: user.uid,
-          userRole: user.role,
-          organizationId,
-          requiredPermissions: permissionOptions,
-        });
-
         return true;
       }
 
-      // 2. Check context-specific permissions if contexts are configured
-      if (permissionOptions.contexts && permissionOptions.contexts.length > 0) {
-        const contexts = await this.contextResolverService.extractContexts(
-          request,
-          permissionOptions.contexts,
+      // Always use permission evaluation
+      return this.evaluatePermissions(
+        user,
+        {
+          ...permissionOptions,
+        },
+        request,
+      );
+    } catch (error) {
+      this.handlePermissionError(error, user, permissionOptions);
+    }
+  }
+
+  /**
+   * Evaluate permissions using PermissionEvaluator
+   * @param user - User authentication payload
+   * @param permissionOptions - Permission check options
+   * @param request - Express request
+   * @returns true if access is allowed, false otherwise
+   */
+  private async evaluatePermissions(
+    user: AuthPayload,
+    permissionOptions: PermissionCheckOptions,
+    request: Request,
+  ): Promise<boolean> {
+    // Get permission keys from options
+    const permissionKeys = {
+      all: permissionOptions.all,
+      any: permissionOptions.any,
+      none: permissionOptions.none,
+    };
+
+    // Extract scope from options or request
+    let scopeType = permissionOptions.scopeType;
+    let scopeId = permissionOptions.scopeId;
+
+    // Auto-detect scope if enabled
+    if (permissionOptions.autoDetectScope) {
+      const detectedScope = await this.extractScopeFromRequest(request);
+      if (detectedScope) {
+        scopeType = detectedScope.scopeType;
+        scopeId = detectedScope.scopeId;
+      }
+    }
+
+    // Map organizationId to scope if provided (backward compatibility)
+    if (!scopeType && !scopeId && permissionOptions.organizationId) {
+      scopeType = 'organization';
+      scopeId = permissionOptions.organizationId;
+    }
+
+    // Check ALL permissions
+    if (permissionKeys.all && permissionKeys.all.length > 0) {
+      for (const permissionKey of permissionKeys.all) {
+        const hasPermission = await this.permissionEvaluator.evaluate(
+          user.uid,
+          permissionKey,
+          scopeType,
+          scopeId,
         );
-
-        // Check if all required contexts were found
-        const requiredContexts = permissionOptions.contexts.filter(
-          (c) => c.required,
-        );
-        for (const config of requiredContexts) {
-          if (!contexts.has(config.type)) {
-            throw new ForbiddenException({
-              messageKey: 'auth.FORBIDDEN',
-              details: {
-                userId: user.uid,
-                message: `Required context ${config.type} not found in request`,
-              },
-            });
-          }
-        }
-
-        // Check permissions for each context
-        const permissionChecks: Promise<boolean>[] = [];
-
-        for (const [contextType, context] of contexts.entries()) {
-          // Get required permissions for this context
-          const requiredPerms = this.getRequiredPermissionsForContext(
-            permissionOptions,
-            contextType,
-          );
-
-          if (requiredPerms.length === 0) {
-            continue; // No specific permissions required for this context
-          }
-
-          // Check if user has any of the required permissions for this context
-          const checkPromise = this.permissionsService.hasAnyContextPermission(
-            user.uid,
-            requiredPerms,
-            context.type,
-            context.id,
-          );
-
-          permissionChecks.push(checkPromise);
-        }
-
-        // If no context-specific checks needed, fall back to general check
-        if (permissionChecks.length === 0) {
-          if (!hasGeneralPermissions) {
-            throw new ForbiddenException({
-              messageKey: 'auth.FORBIDDEN',
-              details: {
-                userId: user.uid,
-                requiredPermissions: permissionOptions,
-                message: 'Insufficient permissions',
-              },
-            });
-          }
-          return true;
-        }
-
-        // All context checks must pass
-        const contextResults = await Promise.all(permissionChecks);
-        const allContextChecksPassed = contextResults.every(
-          (result) => result === true,
-        );
-
-        if (!allContextChecksPassed) {
+        if (!hasPermission) {
           throw new ForbiddenException({
             messageKey: 'auth.FORBIDDEN',
             details: {
               userId: user.uid,
-              requiredPermissions: permissionOptions,
-              contexts: Array.from(contexts.values()),
-              message: 'Insufficient permissions for resource context',
+              requiredPermission: permissionKey,
+              scopeType,
+              scopeId,
+              message: `Missing required permission: ${permissionKey}`,
             },
           });
         }
-
-        this.logger.debug('Permission check passed (context-specific)', {
-          userId: user.uid,
-          contexts: Array.from(contexts.values()),
-          requiredPermissions: permissionOptions,
-        });
-
-        return true;
       }
+    }
 
-      // 3. Auto-detect context if enabled
-      if (permissionOptions.autoDetectContext) {
-        const detectedContext =
-          await this.contextResolverService.autoDetectContext(request);
-
-        if (detectedContext) {
-          // Get required permissions
-          const requiredPerms =
-            this.getAllRequiredPermissions(permissionOptions);
-
-          if (requiredPerms.length > 0) {
-            const hasContextPermission =
-              await this.permissionsService.hasAnyContextPermission(
-                user.uid,
-                requiredPerms,
-                detectedContext.type,
-                detectedContext.id,
-              );
-
-            if (!hasContextPermission) {
-              throw new ForbiddenException({
-                messageKey: 'auth.FORBIDDEN',
-                details: {
-                  userId: user.uid,
-                  context: detectedContext,
-                  requiredPermissions: permissionOptions,
-                  message: 'Insufficient permissions for detected context',
-                },
-              });
-            }
-
-            this.logger.debug(
-              'Permission check passed (auto-detected context)',
-              {
-                userId: user.uid,
-                context: detectedContext,
-                requiredPermissions: permissionOptions,
-              },
-            );
-
-            return true;
-          }
-        }
-      }
-
-      // 4. Fall back to general permission check
-      if (!hasGeneralPermissions) {
+    // Check ANY permissions
+    if (permissionKeys.any && permissionKeys.any.length > 0) {
+      const hasAny = await Promise.all(
+        permissionKeys.any.map((permissionKey) =>
+          this.permissionEvaluator.evaluate(
+            user.uid,
+            permissionKey,
+            scopeType,
+            scopeId,
+          ),
+        ),
+      );
+      if (!hasAny.some((result) => result === true)) {
         throw new ForbiddenException({
           messageKey: 'auth.FORBIDDEN',
           details: {
             userId: user.uid,
-            requiredPermissions: permissionOptions,
-            message: 'Insufficient permissions for this operation',
+            requiredPermissions: permissionKeys.any,
+            scopeType,
+            scopeId,
+            message: 'Missing at least one required permission',
           },
         });
       }
-
-      this.logger.debug('Permission check passed (general)', {
-        userId: user.uid,
-        userRole: user.role,
-        requiredPermissions: permissionOptions,
-      });
-
-      return true;
-    } catch (error) {
-      this.handlePermissionError(error, user, permissionOptions);
     }
+
+    // Check NONE permissions
+    if (permissionKeys.none && permissionKeys.none.length > 0) {
+      for (const permissionKey of permissionKeys.none) {
+        const hasPermission = await this.permissionEvaluator.evaluate(
+          user.uid,
+          permissionKey,
+          scopeType,
+          scopeId,
+        );
+        if (hasPermission) {
+          throw new ForbiddenException({
+            messageKey: 'auth.FORBIDDEN',
+            details: {
+              userId: user.uid,
+              forbiddenPermission: permissionKey,
+              scopeType,
+              scopeId,
+              message: `User has forbidden permission: ${permissionKey}`,
+            },
+          });
+        }
+      }
+    }
+
+    this.logger.debug('Permission check passed', {
+      userId: user.uid,
+      scopeType,
+      scopeId,
+      requiredPermissions: permissionKeys,
+    });
+
+    return true;
+  }
+
+  // V1 evaluation method removed - use permission evaluation only
+
+  /**
+   * Extract scope from request (for auto-detection)
+   * @param request - Express request
+   * @returns Scope info or null
+   */
+  private async extractScopeFromRequest(request: Request): Promise<{
+    scopeType: string;
+    scopeId: string;
+  } | null> {
+    const params = request.params as Record<string, string>;
+    const body = request.body as Record<string, unknown>;
+    const query = request.query as Record<string, string>;
+
+    // Try to extract organization scope
+    const orgId =
+      params.organizationId ||
+      params.orgId ||
+      (body.organizationId as string) ||
+      query.organizationId;
+
+    if (orgId) {
+      return { scopeType: 'organization', scopeId: orgId };
+    }
+
+    // Try to extract segment scope
+    if (
+      request.url.includes('/segments/') ||
+      request.url.includes('/segment/')
+    ) {
+      const segmentId =
+        params.segmentId ||
+        params.id ||
+        (body.segmentId as string) ||
+        query.segmentId;
+
+      if (segmentId) {
+        return { scopeType: 'segment', scopeId: segmentId };
+      }
+    }
+
+    // Try to extract other scopes from contexts
+    const contexts =
+      await this.contextResolverService.autoDetectContext(request);
+    if (contexts) {
+      return { scopeType: contexts.type, scopeId: contexts.id };
+    }
+
+    return null;
   }
 }

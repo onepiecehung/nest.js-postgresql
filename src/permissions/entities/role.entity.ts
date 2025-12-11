@@ -22,12 +22,35 @@ export class Role extends BaseEntityCustom {
   @Column({ type: 'text', nullable: true })
   description?: string;
 
+  // Use allowPermissions and denyPermissions for permission bitfields
+
   /**
-   * Permission bitmask stored as string for safe BigInt handling
-   * Contains bitwise permissions that this role grants
+   * Allow permissions bitmask stored as string for safe BigInt handling
+   * Contains bitwise permissions that this role allows
    */
-  @Column({ type: 'bigint', default: '0' })
-  permissions: string;
+  @Column({ type: 'bigint', nullable: true, default: null })
+  allowPermissions?: string;
+
+  /**
+   * Deny permissions bitmask stored as string for safe BigInt handling
+   * Contains bitwise permissions that this role explicitly denies
+   */
+  @Column({ type: 'bigint', nullable: true, default: null })
+  denyPermissions?: string;
+
+  /**
+   * Type of scope this role applies to (e.g., 'organization', 'team', 'project')
+   * If null, role is global
+   */
+  @Column({ type: 'varchar', length: 50, nullable: true })
+  scopeType?: string;
+
+  /**
+   * ID of the scope resource this role applies to
+   * If null, role is global
+   */
+  @Column({ type: 'bigint', nullable: true })
+  scopeId?: string;
 
   /**
    * Position of the role in the hierarchy (higher = more permissions)
@@ -86,25 +109,49 @@ export class Role extends BaseEntityCustom {
   })
   organization?: Organization;
 
+  // Use getAllowPermissionsAsBigInt() and setAllowPermissionsFromBigInt() for allow permissions
+  // Use getDenyPermissionsAsBigInt() and setDenyPermissionsFromBigInt() for deny permissions
+
   /**
-   * Get permissions as BigInt for bitwise operations
+   * Get allow permissions as BigInt for bitwise operations
    */
-  getPermissionsAsBigInt(): bigint {
-    return BigInt(this.permissions);
+  getAllowPermissionsAsBigInt(): bigint {
+    return this.allowPermissions ? BigInt(this.allowPermissions) : 0n;
   }
 
   /**
-   * Set permissions from BigInt value
+   * Set allow permissions from BigInt value
    */
-  setPermissionsFromBigInt(permissions: bigint): void {
-    this.permissions = permissions.toString();
+  setAllowPermissionsFromBigInt(permissions: bigint): void {
+    this.allowPermissions = permissions.toString();
   }
 
   /**
-   * Check if this role has a specific permission
+   * Get deny permissions as BigInt for bitwise operations
    */
-  hasPermission(permission: bigint): boolean {
-    return (this.getPermissionsAsBigInt() & permission) !== 0n;
+  getDenyPermissionsAsBigInt(): bigint {
+    return this.denyPermissions ? BigInt(this.denyPermissions) : 0n;
+  }
+
+  /**
+   * Set deny permissions from BigInt value
+   */
+  setDenyPermissionsFromBigInt(permissions: bigint): void {
+    this.denyPermissions = permissions.toString();
+  }
+
+  /**
+   * Check if this role is scoped (has scopeType and scopeId)
+   */
+  isScoped(): boolean {
+    return !!this.scopeType && !!this.scopeId;
+  }
+
+  /**
+   * Check if this role is global (no scope)
+   */
+  isGlobal(): boolean {
+    return !this.scopeType && !this.scopeId;
   }
 
   /**
@@ -116,10 +163,13 @@ export class Role extends BaseEntityCustom {
 
   /**
    * Check if this role has administrator permissions
-   * Checks for ARTICLE_MANAGE_ALL permission as admin indicator
+   * Checks if role has all permissions (allowPermissions is max value)
    */
   isAdmin(): boolean {
-    // Use ARTICLE_MANAGE_ALL as admin indicator (bit position 6)
-    return this.hasPermission(1n << 6n); // ARTICLE_MANAGE_ALL permission
+    // Check if role has all permissions (max bigint value)
+    const maxPermissions = ~0n; // All bits set
+    return this.allowPermissions
+      ? BigInt(this.allowPermissions) === maxPermissions
+      : false;
   }
 }

@@ -1,8 +1,7 @@
 import { forwardRef, Inject, Injectable, Logger } from '@nestjs/common';
-import { PermissionsService } from 'src/permissions/permissions.service';
-import { checkPermissions, hasPermission } from 'src/permissions/utils';
-import { PermissionName } from 'src/shared/constants';
 import { CacheService } from 'src/shared/services';
+import { PermissionKey } from '../types/permission-key.type';
+import { PermissionEvaluator } from './permission-evaluator.service';
 
 /**
  * High-performance permission service with Redis caching
@@ -16,8 +15,8 @@ export class UserPermissionService {
 
   constructor(
     private readonly cacheService: CacheService,
-    @Inject(forwardRef(() => PermissionsService))
-    private readonly permissionsService: PermissionsService,
+    @Inject(forwardRef(() => PermissionEvaluator))
+    private readonly permissionEvaluator: PermissionEvaluator,
   ) {}
 
   /**
@@ -32,20 +31,23 @@ export class UserPermissionService {
     try {
       this.logger.log(`Initializing permissions for user ${userId}`);
 
-      // Get fresh permissions from database
-      const permissions =
-        await this.permissionsService.getUserPermissionsBitfield(userId);
+      // Get fresh permissions from evaluator
+      const effective = await this.permissionEvaluator.getEffectivePermissions(
+        userId,
+        organizationId ? 'organization' : undefined,
+        organizationId,
+      );
 
       // Cache with different keys for different contexts
       const cacheKey = this.getCacheKey(userId, organizationId);
       await this.cacheService.set(
         cacheKey,
-        permissions.toString(),
+        effective.allowPermissions.toString(),
         this.CACHE_TTL,
       );
 
       this.logger.log(
-        `Cached permissions for user ${userId}: ${permissions.toString()}`,
+        `Cached permissions for user ${userId}: ${effective.allowPermissions.toString()}`,
       );
     } catch (error) {
       this.logger.error(`Failed to init permissions for user ${userId}`, error);
@@ -58,6 +60,7 @@ export class UserPermissionService {
    * @param userId - User ID
    * @param organizationId - Optional organization context
    * @returns Promise<bigint>
+   * @deprecated Use PermissionEvaluator.getEffectivePermissions() instead
    */
   async getUserPermissions(
     userId: string,
@@ -72,17 +75,20 @@ export class UserPermissionService {
         return BigInt(cached as string);
       }
 
-      // If not in cache, load from database and cache it
+      // If not in cache, load from evaluator and cache it
       this.logger.warn(`Cache miss for user ${userId}, loading from database`);
-      const permissions =
-        await this.permissionsService.getUserPermissionsBitfield(userId);
+      const effective = await this.permissionEvaluator.getEffectivePermissions(
+        userId,
+        organizationId ? 'organization' : undefined,
+        organizationId,
+      );
       await this.cacheService.set(
         cacheKey,
-        permissions.toString(),
+        effective.allowPermissions.toString(),
         this.CACHE_TTL,
       );
 
-      return permissions;
+      return effective.allowPermissions;
     } catch (error) {
       this.logger.error(`Failed to get permissions for user ${userId}`, error);
       return 0n; // Return no permissions on error
@@ -92,17 +98,21 @@ export class UserPermissionService {
   /**
    * Check if user has a single permission (cached)
    * @param userId - User ID
-   * @param permission - Permission to check
+   * @param permissionKey - PermissionKey to check
    * @param organizationId - Optional organization context
    * @returns Promise<boolean>
    */
   async hasPermission(
     userId: string,
-    permission: PermissionName,
+    permissionKey: PermissionKey,
     organizationId?: string,
   ): Promise<boolean> {
-    const permissions = await this.getUserPermissions(userId, organizationId);
-    return hasPermission(permissions, permission);
+    return this.permissionEvaluator.evaluate(
+      userId,
+      permissionKey,
+      organizationId ? 'organization' : undefined,
+      organizationId,
+    );
   }
 
   /**
@@ -115,14 +125,66 @@ export class UserPermissionService {
   async checkPermissions(
     userId: string,
     options: {
-      all?: PermissionName[];
-      any?: PermissionName[];
-      none?: PermissionName[];
+      all?: PermissionKey[];
+      any?: PermissionKey[];
+      none?: PermissionKey[];
     },
     organizationId?: string,
   ): Promise<boolean> {
-    const permissions = await this.getUserPermissions(userId, organizationId);
-    return checkPermissions(permissions, options);
+    const scopeType = organizationId ? 'organization' : undefined;
+    const scopeId = organizationId;
+
+    // Check ALL permissions
+    if (options.all && options.all.length > 0) {
+      for (const key of options.all) {
+        const hasPermission = await this.permissionEvaluator.evaluate(
+          userId,
+          key,
+          scopeType,
+          scopeId,
+        );
+        if (!hasPermission) {
+          return false;
+        }
+      }
+    }
+
+    // Check ANY permissions
+    if (options.any && options.any.length > 0) {
+      let hasAny = false;
+      for (const key of options.any) {
+        const hasPermission = await this.permissionEvaluator.evaluate(
+          userId,
+          key,
+          scopeType,
+          scopeId,
+        );
+        if (hasPermission) {
+          hasAny = true;
+          break;
+        }
+      }
+      if (!hasAny && options.any.length > 0) {
+        return false;
+      }
+    }
+
+    // Check NONE permissions
+    if (options.none && options.none.length > 0) {
+      for (const key of options.none) {
+        const hasPermission = await this.permissionEvaluator.evaluate(
+          userId,
+          key,
+          scopeType,
+          scopeId,
+        );
+        if (hasPermission) {
+          return false; // User has a forbidden permission
+        }
+      }
+    }
+
+    return true;
   }
 
   /**
@@ -137,20 +199,30 @@ export class UserPermissionService {
     try {
       this.logger.log(`Refreshing permissions for user ${userId}`);
 
-      // Get fresh permissions from database
-      const permissions =
-        await this.permissionsService.getUserPermissionsBitfield(userId);
+      // Get fresh permissions from evaluator
+      const effective = await this.permissionEvaluator.getEffectivePermissions(
+        userId,
+        organizationId ? 'organization' : undefined,
+        organizationId,
+      );
 
       // Update cache
       const cacheKey = this.getCacheKey(userId, organizationId);
       await this.cacheService.set(
         cacheKey,
-        permissions.toString(),
+        effective.allowPermissions.toString(),
         this.CACHE_TTL,
       );
 
+      // Also invalidate cache to ensure consistency
+      await this.permissionEvaluator.invalidateCache(
+        userId,
+        organizationId ? 'organization' : undefined,
+        organizationId,
+      );
+
       this.logger.log(
-        `Refreshed permissions for user ${userId}: ${permissions.toString()}`,
+        `Refreshed permissions for user ${userId}: ${effective.allowPermissions.toString()}`,
       );
     } catch (error) {
       this.logger.error(
@@ -226,25 +298,25 @@ export class UserPermissionService {
    */
 
   async isAdmin(userId: string): Promise<boolean> {
-    // Check if user has ARTICLE_MANAGE_ALL permission (admin override)
-    return this.hasPermission(userId, 'ARTICLE_MANAGE_ALL');
+    // Check if user has article.update permission (admin indicator)
+    return this.permissionEvaluator.evaluate(userId, 'article.update');
   }
 
   async isRegularUser(userId: string): Promise<boolean> {
-    // Regular user doesn't have ARTICLE_MANAGE_ALL
-    return !(await this.hasPermission(userId, 'ARTICLE_MANAGE_ALL'));
+    // Regular user doesn't have article.update
+    return !(await this.isAdmin(userId));
   }
 
   async canManageContent(userId: string): Promise<boolean> {
     return this.checkPermissions(userId, {
-      all: ['ARTICLE_CREATE'],
-      any: ['ARTICLE_UPDATE', 'ARTICLE_UPDATE'],
+      all: ['article.create'],
+      any: ['article.update', 'article.update'],
     });
   }
 
   async canModerateContent(userId: string): Promise<boolean> {
     return this.checkPermissions(userId, {
-      any: ['ARTICLE_UPDATE', 'REPORT_MODERATE'],
+      any: ['article.update', 'report.update'],
     });
   }
 
@@ -252,13 +324,20 @@ export class UserPermissionService {
     userId: string,
     organizationId: string,
   ): Promise<boolean> {
-    return this.checkPermissions(
-      userId,
-      {
-        all: ['ORGANIZATION_MANAGE_MEMBERS', 'ORGANIZATION_MANAGE_SETTINGS'],
-        none: ['ORGANIZATION_DELETE'],
-      },
-      organizationId,
+    // Use permission evaluator directly for better performance
+    return (
+      (await this.permissionEvaluator.evaluate(
+        userId,
+        'organization.update',
+        'organization',
+        organizationId,
+      )) &&
+      !(await this.permissionEvaluator.evaluate(
+        userId,
+        'organization.delete',
+        'organization',
+        organizationId,
+      ))
     );
   }
 }

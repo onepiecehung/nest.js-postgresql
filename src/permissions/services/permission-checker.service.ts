@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { PermissionsService } from 'src/permissions/permissions.service';
-import { checkPermissions, hasPermission } from 'src/permissions/utils';
-import { PermissionName } from 'src/shared/constants';
+import { EffectivePermissions } from '../interfaces/effective-permissions.interface';
+import { PermissionKey } from '../types/permission-key.type';
+import { PermissionEvaluator } from './permission-evaluator.service';
 
 /**
  * High-performance permission checker with caching
@@ -11,27 +11,30 @@ import { PermissionName } from 'src/shared/constants';
 export class PermissionChecker {
   private readonly logger = new Logger(PermissionChecker.name);
 
-  constructor(private readonly permissionsService: PermissionsService) {}
+  constructor(private readonly permissionEvaluator: PermissionEvaluator) {}
 
   /**
    * Check if user has a single permission
    * @param userId - User ID
-   * @param permission - Permission to check
-   * @param organizationId - Optional organization context
+   * @param permissionKey - PermissionKey to check
+   * @param organizationId - Optional organization context (mapped to scopeType/scopeId)
    * @returns Promise<boolean>
    */
   async hasPermission(
     userId: string,
-    permission: PermissionName,
+    permissionKey: PermissionKey,
     organizationId?: string,
   ): Promise<boolean> {
     try {
-      const userPermissions =
-        await this.permissionsService.getUserPermissionsBitfield(userId);
-      return hasPermission(userPermissions, permission);
+      return this.permissionEvaluator.evaluate(
+        userId,
+        permissionKey,
+        organizationId ? 'organization' : undefined,
+        organizationId,
+      );
     } catch (error) {
       this.logger.error(
-        `Failed to check permission ${permission} for user ${userId}`,
+        `Failed to check permission ${permissionKey} for user ${userId}`,
         error,
       );
       return false;
@@ -41,19 +44,34 @@ export class PermissionChecker {
   /**
    * Check if user has ALL required permissions (AND operation)
    * @param userId - User ID
-   * @param permissions - Array of permissions that ALL must be present
+   * @param permissionKeys - Array of PermissionKeys that ALL must be present
    * @param organizationId - Optional organization context
    * @returns Promise<boolean>
    */
   async hasAllPermissions(
     userId: string,
-    permissions: PermissionName[],
+    permissionKeys: PermissionKey[],
     organizationId?: string,
   ): Promise<boolean> {
     try {
-      const userPermissions =
-        await this.permissionsService.getUserPermissionsBitfield(userId);
-      return checkPermissions(userPermissions, { all: permissions });
+      if (permissionKeys.length === 0) {
+        return false;
+      }
+
+      // Check all permissions
+      for (const permissionKey of permissionKeys) {
+        const hasPermission = await this.permissionEvaluator.evaluate(
+          userId,
+          permissionKey,
+          organizationId ? 'organization' : undefined,
+          organizationId,
+        );
+        if (!hasPermission) {
+          return false;
+        }
+      }
+
+      return true;
     } catch (error) {
       this.logger.error(
         `Failed to check all permissions for user ${userId}`,
@@ -66,19 +84,34 @@ export class PermissionChecker {
   /**
    * Check if user has ANY of the permissions (OR operation)
    * @param userId - User ID
-   * @param permissions - Array of permissions where ANY can be present
+   * @param permissionKeys - Array of PermissionKeys where ANY can be present
    * @param organizationId - Optional organization context
    * @returns Promise<boolean>
    */
   async hasAnyPermission(
     userId: string,
-    permissions: PermissionName[],
+    permissionKeys: PermissionKey[],
     organizationId?: string,
   ): Promise<boolean> {
     try {
-      const userPermissions =
-        await this.permissionsService.getUserPermissionsBitfield(userId);
-      return checkPermissions(userPermissions, { any: permissions });
+      if (permissionKeys.length === 0) {
+        return false;
+      }
+
+      // Check if any permission is granted
+      for (const permissionKey of permissionKeys) {
+        const hasPermission = await this.permissionEvaluator.evaluate(
+          userId,
+          permissionKey,
+          organizationId ? 'organization' : undefined,
+          organizationId,
+        );
+        if (hasPermission) {
+          return true;
+        }
+      }
+
+      return false;
     } catch (error) {
       this.logger.error(
         `Failed to check any permissions for user ${userId}`,
@@ -91,19 +124,34 @@ export class PermissionChecker {
   /**
    * Check if user has NONE of the forbidden permissions (NOT operation)
    * @param userId - User ID
-   * @param permissions - Array of permissions that must NOT be present
+   * @param permissionKeys - Array of PermissionKeys that must NOT be present
    * @param organizationId - Optional organization context
    * @returns Promise<boolean>
    */
   async hasNonePermissions(
     userId: string,
-    permissions: PermissionName[],
+    permissionKeys: PermissionKey[],
     organizationId?: string,
   ): Promise<boolean> {
     try {
-      const userPermissions =
-        await this.permissionsService.getUserPermissionsBitfield(userId);
-      return checkPermissions(userPermissions, { none: permissions });
+      if (permissionKeys.length === 0) {
+        return true; // No forbidden permissions to check
+      }
+
+      // Check that none of the permissions are granted
+      for (const permissionKey of permissionKeys) {
+        const hasPermission = await this.permissionEvaluator.evaluate(
+          userId,
+          permissionKey,
+          organizationId ? 'organization' : undefined,
+          organizationId,
+        );
+        if (hasPermission) {
+          return false; // User has a forbidden permission
+        }
+      }
+
+      return true; // User has none of the forbidden permissions
     } catch (error) {
       this.logger.error(
         `Failed to check none permissions for user ${userId}`,
@@ -117,21 +165,73 @@ export class PermissionChecker {
    * Complex permission check with AND/OR/NOT logic
    * @param userId - User ID
    * @param options - Permission check options
+   * @param organizationId - Optional organization context
    * @returns Promise<boolean>
    */
   async checkPermissions(
     userId: string,
     options: {
-      all?: PermissionName[];
-      any?: PermissionName[];
-      none?: PermissionName[];
+      all?: PermissionKey[];
+      any?: PermissionKey[];
+      none?: PermissionKey[];
     },
     organizationId?: string,
   ): Promise<boolean> {
     try {
-      const userPermissions =
-        await this.permissionsService.getUserPermissionsBitfield(userId);
-      return checkPermissions(userPermissions, options);
+      const scopeType = organizationId ? 'organization' : undefined;
+      const scopeId = organizationId;
+
+      // Check ALL permissions
+      if (options.all && options.all.length > 0) {
+        for (const key of options.all) {
+          const hasPermission = await this.permissionEvaluator.evaluate(
+            userId,
+            key,
+            scopeType,
+            scopeId,
+          );
+          if (!hasPermission) {
+            return false;
+          }
+        }
+      }
+
+      // Check ANY permissions
+      if (options.any && options.any.length > 0) {
+        let hasAny = false;
+        for (const key of options.any) {
+          const hasPermission = await this.permissionEvaluator.evaluate(
+            userId,
+            key,
+            scopeType,
+            scopeId,
+          );
+          if (hasPermission) {
+            hasAny = true;
+            break;
+          }
+        }
+        if (!hasAny) {
+          return false;
+        }
+      }
+
+      // Check NONE permissions
+      if (options.none && options.none.length > 0) {
+        for (const key of options.none) {
+          const hasPermission = await this.permissionEvaluator.evaluate(
+            userId,
+            key,
+            scopeType,
+            scopeId,
+          );
+          if (hasPermission) {
+            return false; // User has a forbidden permission
+          }
+        }
+      }
+
+      return true;
     } catch (error) {
       this.logger.error(
         `Failed to check complex permissions for user ${userId}`,
@@ -142,12 +242,12 @@ export class PermissionChecker {
   }
 
   /**
-   * Check if user is admin (has ARTICLE_MANAGE_ALL permission)
+   * Check if user is admin (has article.update permission)
    * @param userId - User ID
    * @returns Promise<boolean>
    */
   async isAdmin(userId: string): Promise<boolean> {
-    return this.hasPermission(userId, 'ARTICLE_MANAGE_ALL');
+    return this.permissionEvaluator.evaluate(userId, 'article.update');
   }
 
   /**
@@ -156,7 +256,7 @@ export class PermissionChecker {
    * @returns Promise<boolean>
    */
   async isRegularUser(userId: string): Promise<boolean> {
-    return !(await this.hasPermission(userId, 'ARTICLE_MANAGE_ALL'));
+    return !(await this.isAdmin(userId));
   }
 
   /**
@@ -166,8 +266,8 @@ export class PermissionChecker {
    */
   async canManageContent(userId: string): Promise<boolean> {
     return this.checkPermissions(userId, {
-      all: ['ARTICLE_CREATE'],
-      any: ['ARTICLE_UPDATE', 'ARTICLE_UPDATE'],
+      all: ['article.create'],
+      any: ['article.update', 'article.update'],
     });
   }
 
@@ -178,7 +278,7 @@ export class PermissionChecker {
    */
   async canModerateContent(userId: string): Promise<boolean> {
     return this.checkPermissions(userId, {
-      any: ['ARTICLE_UPDATE', 'REPORT_MODERATE'],
+      any: ['article.update', 'report.update'],
     });
   }
 
@@ -192,13 +292,20 @@ export class PermissionChecker {
     userId: string,
     organizationId: string,
   ): Promise<boolean> {
-    return this.checkPermissions(
-      userId,
-      {
-        all: ['ORGANIZATION_MANAGE_MEMBERS', 'ORGANIZATION_MANAGE_SETTINGS'],
-        none: ['ORGANIZATION_DELETE'],
-      },
-      organizationId,
+    // Use permission evaluator directly for better performance
+    return (
+      (await this.permissionEvaluator.evaluate(
+        userId,
+        'organization.update',
+        'organization',
+        organizationId,
+      )) &&
+      !(await this.permissionEvaluator.evaluate(
+        userId,
+        'organization.delete',
+        'organization',
+        organizationId,
+      ))
     );
   }
 
@@ -212,19 +319,28 @@ export class PermissionChecker {
     userId: string,
     organizationId?: string,
   ): Promise<bigint> {
-    return this.permissionsService.getUserPermissionsBitfield(userId);
+    const effective = await this.permissionEvaluator.getEffectivePermissions(
+      userId,
+      organizationId ? 'organization' : undefined,
+      organizationId,
+    );
+    return effective.allowPermissions;
   }
 
   /**
-   * Get user permissions as array of names (cached)
+   * Get user effective permissions
    * @param userId - User ID
-   * @param _organizationId - Optional organization context
-   * @returns Promise<PermissionName[]>
+   * @param organizationId - Optional organization context
+   * @returns Promise<EffectivePermissions>
    */
-  async getUserPermissionNames(
+  async getUserEffectivePermissions(
     userId: string,
-    _organizationId?: string,
-  ): Promise<PermissionName[]> {
-    return this.permissionsService.getUserPermissions(userId);
+    organizationId?: string,
+  ): Promise<EffectivePermissions> {
+    return this.permissionEvaluator.getEffectivePermissions(
+      userId,
+      organizationId ? 'organization' : undefined,
+      organizationId,
+    );
   }
 }
