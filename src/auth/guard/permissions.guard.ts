@@ -241,14 +241,6 @@ export class PermissionsGuard implements CanActivate {
       none: permissionOptions.none,
     };
 
-    if (
-      !permissionKeys.all?.length &&
-      !permissionKeys.any?.length &&
-      !permissionKeys.none?.length
-    ) {
-      return false;
-    }
-
     // Extract scope from options or request
     let scopeType = permissionOptions.scopeType;
     let scopeId = permissionOptions.scopeId;
