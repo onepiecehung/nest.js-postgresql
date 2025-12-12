@@ -74,6 +74,7 @@ export class SegmentsService extends BaseService<Segments> {
             title: true,
             type: true,
             format: true,
+            coverImageUrls: true,
             status: true,
           },
           user: {
@@ -242,7 +243,22 @@ export class SegmentsService extends BaseService<Segments> {
   async findAllCursor(
     paginationDto: CursorPaginationDto,
   ): Promise<IPaginationCursor<Segments>> {
-    return this.listCursor(paginationDto);
+    return this.listCursor(
+      paginationDto,
+      {},
+      {
+        relations: {
+          series: true,
+        },
+        select: {
+          series: {
+            id: true,
+            title: true,
+            coverImageUrls: true,
+          },
+        },
+      },
+    );
   }
 
   /**
